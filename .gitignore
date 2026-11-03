@@ -1,0 +1,24 @@
+# Runtime data / local config
+__pycache__/
+*.py[cod]
+data/
+files/
+logs/
+engine-config.json
+plugin_state.json
+*.log
+
+# Optional source maps
+engine/*.map
+
+# Secrets / local environment
+.env
+.env.*
+!.env.example
+secrets.json
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
