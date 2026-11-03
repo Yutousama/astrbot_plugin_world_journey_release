@@ -25,6 +25,11 @@ from astrbot.core.message.components import Image, Plain
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.provider.entities import ProviderRequest
 
+try:  # AstrBot 推荐的“仅本轮可见”内容块
+    from astrbot.core.agent.message import TextPart
+except Exception:  # pragma: no cover - 老版本兜底
+    TextPart = None  # type: ignore[assignment]
+
 from .access import access_allowed
 from .bridge import BridgeError, RAW_DIR, SidecarBridge, UPDATER
 from .config_map import write_engine_config
@@ -190,26 +195,54 @@ class WorldJourneyPlugin(Star):
             text = await self.bridge.prompt()
         except Exception as exc:
             logger.debug("[world-journey] 提示词拉取失败：%s", exc)
-            return
+            text = ""
+        parts: list[str] = []
         if text.strip():
-            req.system_prompt = (req.system_prompt or "") + "\n\n" + text
-        self._append_recent_reports(event, req)
+            parts.append(text.strip())
+        recent = self._recent_reports_block(event)
+        if recent:
+            parts.append(recent)
+        if parts:
+            self._append_extra_user_content(req, "\n\n".join(parts))
 
-    def _append_recent_reports(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
+    @staticmethod
+    def _append_extra_user_content(req: ProviderRequest, text: str) -> bool:
+        """用临时内容块注入，不改 system prompt，避免破坏 prompt cache。"""
+        if not text.strip():
+            return False
+        if TextPart is None:
+            logger.warning("[world-journey] 当前 AstrBot 不支持 TextPart，跳过提示词注入")
+            return False
+        parts = getattr(req, "extra_user_content_parts", None)
+        if not isinstance(parts, list):
+            logger.warning("[world-journey] 当前 AstrBot 不支持 extra_user_content_parts，跳过提示词注入")
+            return False
+        try:
+            part = TextPart(text=text)
+            mark = getattr(part, "mark_as_temp", None) or getattr(part, "make_as_temp", None)
+            if not callable(mark):
+                logger.warning("[world-journey] 当前 AstrBot 不支持临时内容块，跳过提示词注入")
+                return False
+            parts.append(mark())
+            return True
+        except Exception as exc:  # pragma: no cover - 防御
+            logger.warning("[world-journey] 提示词注入失败：%s", exc)
+            return False
+
+    def _recent_reports_block(self, event: AstrMessageEvent) -> str:
         if not bool(self.cfg.get("inject_recent_reports", True)):
-            return
+            return ""
         if not self._recent_reports or not self._report_target:
-            return
+            return ""
         umo = str(getattr(event, "unified_msg_origin", "") or "").strip()
         if umo != self._report_target:
-            return
+            return ""
         try:
             count = max(1, min(20, int(self.cfg.get("recent_report_count", 5) or 5)))
         except (TypeError, ValueError):
             count = 5
         reports = self._recent_reports[-count:]
-        block = "\n\n最近发给这个会话的旅行汇报（从旧到新）：\n" + "\n".join(f"- {r}" for r in reports)
-        req.system_prompt = (req.system_prompt or "") + block
+        return "最近发给这个会话的旅行汇报（从旧到新）：\n" + "\n".join(f"- {r}" for r in reports)
 
     # ---------------- 主动消息 ----------------
     def _start_pump(self) -> None:

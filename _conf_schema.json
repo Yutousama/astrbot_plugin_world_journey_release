@@ -209,7 +209,7 @@
     "description": "把旅行状态注入 LLM 提示词",
     "type": "bool",
     "default": true,
-    "hint": "关闭后模型不知道她在哪；一般保持开启。"
+    "hint": "以临时 user 内容块注入，不改 system prompt、不写历史；关闭后模型不知道她在哪。"
   },
   "inject_recent_reports": {
     "description": "把最近主动汇报注入主聊天提示词",

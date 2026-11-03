@@ -5,7 +5,7 @@
 - 发布仓库：<https://github.com/Yutousama/astrbot_plugin_world_journey_release>
 - 开发仓库：<https://github.com/Yutousama/astrbot_plugin_world_journey>
 - 插件作者：**yutou**
-- 版本：**v1.0.1**
+- 版本：**v1.0.2**
 
 旅行引擎来自上游 [`coopani-world-journey`](https://www.npmjs.com/package/coopani-world-journey)
 （原作者 Mr.Q，MIT），感谢原项目；本插件只做 AstrBot 接入，上游源码可在插件内从 npm 更新
@@ -180,9 +180,14 @@ LLM 工具由引擎自动注册（0.5.25 是 6 个，0.5.16 是 5 个，以实�
 开启 `inject_prompt` 后，每次 LLM 请求会追加一段旅行状态（她所在城市、当地时刻、今晚住哪、接下来做什么）。
 这段来自上游 `ENV_PROMPT.md`，已剥掉桌面立绘的动作段、清洗了 AstrBot 不存在的 `music_pick` 工具。
 
+注入方式是 `req.extra_user_content_parts` + `TextPart.mark_as_temp()`：内容作为**仅本轮可见**的临时
+user 内容块，不修改 `system_prompt`、不写入会话历史，避免系统提示之后的历史无法命中 prompt cache。
+如果 AstrBot 版本不支持临时内容块，插件会跳过注入并写日志，不会退回拼接 system prompt。
+
 另外，插件会在内存里保留最近几条**主动汇报**（`inject_recent_reports`，默认 5 条），
-只注入给实际收到汇报的那个会话。这样用户接着「刚刚到哪了」聊时，主 agent 知道在说哪条汇报。
-`recent_report_count` 控制条数；重启插件后缓冲清空，重置旅行也会清空。
+只注入给实际收到汇报的那个会话，和旅行状态合并在同一个临时内容块里。这样用户接着
+「刚刚到哪了」聊时，主 agent 知道在说哪条汇报。`recent_report_count` 控制条数；重启插件后
+缓冲清空，重置旅行也会清空。
 
 ## 主动消息
 

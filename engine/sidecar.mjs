@@ -788,7 +788,7 @@ function stringOf(value) {
 }
 
 // adapter/bridge.ts
-var BRIDGE_VERSION = "1.0.1";
+var BRIDGE_VERSION = "1.0.2";
 function readLocalNowPlaying(dataDir) {
   try {
     const path = join8(dataDir, "nowplaying.json");
@@ -1380,7 +1380,7 @@ async function readJsonBody(req) {
 }
 
 // adapter/cli.ts
-var VERSION = "1.0.1";
+var VERSION = "1.0.2";
 var OPTIONS = {
   data: { type: "string" },
   config: { type: "string" },
