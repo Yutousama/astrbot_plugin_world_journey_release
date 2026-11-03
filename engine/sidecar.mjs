@@ -494,6 +494,7 @@ import { readFile } from "node:fs/promises";
 import { extname as extname2 } from "node:path";
 var DEFAULT_PROMPT = [
   "\u4E00\u5F20\u81EA\u62CD\u7167\u7247\uFF1A{subject}\u5728\u753B\u9762\u91CC\uFF0C\u624B\u673A\u524D\u7F6E\u955C\u5934\u8FD1\u8DDD\u79BB\u81EA\u62CD\uFF0C\u8138\u548C\u4E0A\u534A\u8EAB\u6E05\u6670\uFF0C\u773C\u775B\u770B\u7740\u955C\u5934\uFF0C\u8868\u60C5\u81EA\u7136\u3002",
+  "\u65F6\u95F4\uFF1A{time}\uFF08{clock}\uFF09\u3002",
   "\u80CC\u666F\uFF1A{scene}",
   "\u53C2\u8003\u56FE\u662F{subject}\u7684\u957F\u76F8\u53C2\u8003\uFF1A\u4FDD\u6301\u4E94\u5B98\u3001\u8138\u578B\u3001\u53D1\u578B\u3001\u80A4\u8272\u3001\u5E74\u9F84\u548C\u6C14\u8D28\u4E00\u81F4\uFF1B\u4E0D\u8981\u6362\u8138\uFF0C\u4E0D\u8981\u53D8\u6210\u964C\u751F\u4EBA\uFF0C\u4E0D\u8981\u7167\u642C\u53C2\u8003\u56FE\u7684\u80CC\u666F\u548C\u8863\u670D\u3002",
   "\u771F\u5B9E\u624B\u673A\u81EA\u62CD\u8D28\u611F\uFF0C\u81EA\u7136\u5149\uFF0C\u8F7B\u5FAE\u624B\u6301\u611F\uFF1B\u753B\u9762\u91CC\u53EA\u6709{subject}\u4E00\u4E2A\u4EBA\uFF0C\u6CA1\u6709\u6587\u5B57\u3001\u6C34\u5370\u3001\u8FB9\u6846\u3002"
@@ -501,11 +502,73 @@ var DEFAULT_PROMPT = [
 var NO_PEOPLE = /画面里没有人物[^。]*。/g;
 var PASSERBY = /视角像路过的人[^。]*。/g;
 var FILM = /胶片质感[^。]*。/g;
-function buildSelfiePrompt(original, opts) {
+var TIME_OF_DAY = [
+  [0, "\u5348\u591C"],
+  [90, "\u51CC\u6668"],
+  [180, "\u6DF1\u591C"],
+  [270, "\u62C2\u6653"],
+  [300, "\u9ECE\u660E"],
+  [330, "\u7834\u6653"],
+  [360, "\u6668\u5149\u521D\u73B0"],
+  [390, "\u6E05\u6668"],
+  [450, "\u65E9\u6668"],
+  [510, "\u4E0A\u5348"],
+  [600, "\u4E0A\u5348\u5C06\u5C3D"],
+  [660, "\u4E34\u8FD1\u6B63\u5348"],
+  [690, "\u6B63\u5348"],
+  [780, "\u5348\u540E"],
+  [840, "\u4E0B\u5348"],
+  [930, "\u4E0B\u5348\u5C06\u5C3D"],
+  [990, "\u508D\u665A"],
+  [1050, "\u9EC4\u660F"],
+  [1095, "\u66AE\u8272"],
+  [1140, "\u5165\u591C"],
+  [1200, "\u591C\u665A"],
+  [1320, "\u6DF1\u591C"],
+  [1410, "\u5348\u591C\u524D"]
+];
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+function parseClock(value) {
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec((value ?? "").trim());
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const second = m[3] ? Number(m[3]) : 0;
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  return { minutes: hour * 60 + minute, text: `${pad2(hour)}:${pad2(minute)}` };
+}
+function systemClock() {
+  const now = /* @__PURE__ */ new Date();
+  return {
+    minutes: now.getHours() * 60 + now.getMinutes(),
+    text: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`
+  };
+}
+function labelFor(minutes) {
+  let label = TIME_OF_DAY[0][1];
+  for (const [start, text2] of TIME_OF_DAY) {
+    if (minutes >= start) label = text2;
+    else break;
+  }
+  return label;
+}
+function describeTime(clock) {
+  const parsed = parseClock(clock) ?? systemClock();
+  return { label: labelFor(parsed.minutes), clock: parsed.text };
+}
+function buildSelfiePrompt(original, opts, clock) {
   const scene = original.replace(/^一张真实旅行照片：/, "").replace(NO_PEOPLE, "").replace(PASSERBY, "").replace(FILM, "").replace(/\s+/g, " ").trim();
   const subject = opts.subject.trim() || "\u5979\u672C\u4EBA";
   const template = opts.promptTemplate.trim() || DEFAULT_PROMPT;
-  return template.replaceAll("{scene}", scene).replaceAll("{subject}", subject).trim();
+  const time = describeTime(clock);
+  let prompt = template.replaceAll("{scene}", scene).replaceAll("{subject}", subject).replaceAll("{time}", time.label).replaceAll("{clock}", time.clock);
+  if (!template.includes("{time}") && !template.includes("{clock}")) {
+    prompt += `
+\u65F6\u95F4\uFF1A${time.label}\uFF08${time.clock}\uFF09\u3002`;
+  }
+  return prompt.trim();
 }
 function installPhotoProxy(opts, log, fetchImpl = globalThis.fetch) {
   const models = modelListOf(opts.models);
@@ -526,6 +589,7 @@ function installPhotoProxy(opts, log, fetchImpl = globalThis.fetch) {
     const candidates = selfie ? selfieModels.length ? selfieModels : [stringOf(body.model).trim() || "gpt-image-1"] : models;
     if (candidates.length === 0) return original(input, init);
     let reference = null;
+    let clock;
     if (selfie) {
       try {
         reference = await loadSelfieReference(selfie, original);
@@ -534,12 +598,17 @@ function installPhotoProxy(opts, log, fetchImpl = globalThis.fetch) {
         log.warn(`\u81EA\u62CD\u751F\u56FE\u5931\u8D25\uFF1A${message2}`);
         return jsonResponse({ error: { message: message2 } }, 502);
       }
+      try {
+        clock = await opts.clock?.() ?? void 0;
+      } catch {
+        clock = void 0;
+      }
     }
     const failures = [];
     for (const model of candidates) {
       try {
         if (selfie) {
-          const result = await generateSelfieWithModel(selfie, model, body, prompt, original, log, reference);
+          const result = await generateSelfieWithModel(selfie, model, body, prompt, original, log, reference, clock);
           return jsonResponse({ data: [result] });
         }
         const res = await replayWithModel(original, url, init ?? {}, body, model);
@@ -567,7 +636,7 @@ function installPhotoProxy(opts, log, fetchImpl = globalThis.fetch) {
 }
 async function generateSelfieBytes(prompt, opts, fetchImpl = globalThis.fetch, log = { info: () => {
 }, warn: () => {
-} }) {
+} }, clock) {
   const reference = await loadSelfieReference(opts, fetchImpl);
   const models = modelListOf(opts.model);
   const candidates = models.length ? models : ["gpt-image-1"];
@@ -575,7 +644,7 @@ async function generateSelfieBytes(prompt, opts, fetchImpl = globalThis.fetch, l
   let result = null;
   for (const model of candidates) {
     try {
-      result = await generateSelfieWithModel(opts, model, {}, prompt, fetchImpl, log, reference);
+      result = await generateSelfieWithModel(opts, model, {}, prompt, fetchImpl, log, reference, clock);
       break;
     } catch (e) {
       const why = errText(e);
@@ -601,10 +670,10 @@ async function generateSelfieBytes(prompt, opts, fetchImpl = globalThis.fetch, l
   }
   throw new Error("\u81EA\u62CD\u63A5\u53E3\u6CA1\u6709\u8FD4\u56DE\u56FE\u7247");
 }
-async function generateSelfieWithModel(opts, model, upstreamBody, originalPrompt, fetchImpl, log, reference) {
+async function generateSelfieWithModel(opts, model, upstreamBody, originalPrompt, fetchImpl, log, reference, clock) {
   const api = opts.api.trim().replace(/\/+$/, "");
   if (!api) throw new Error("\u81EA\u62CD\u751F\u56FE\u63A5\u53E3\u6CA1\u586B\uFF08selfie_api / image_api\uFF09");
-  const prompt = buildSelfiePrompt(originalPrompt, opts);
+  const prompt = buildSelfiePrompt(originalPrompt, opts, clock);
   const size = opts.size.trim() || stringOf(upstreamBody.size) || "1024x1024";
   const headers = {};
   if (opts.key.trim()) headers.authorization = `Bearer ${opts.key.trim()}`;
@@ -1118,7 +1187,7 @@ var RawBridge = class {
     const selfie = this.selfieOptions();
     const models = this.imageModels();
     if (!selfie && models.length === 0) return;
-    const proxy = installPhotoProxy({ models, selfie }, this.log);
+    const proxy = installPhotoProxy({ models, selfie, clock: () => this.localClock() }, this.log);
     this.uninstallSelfie = proxy.uninstall;
     this.proxyFetch = proxy.fetch;
     if (selfie) {
@@ -1130,6 +1199,22 @@ var RawBridge = class {
       this.log.info(`\u751F\u56FE\u6A21\u578B\u964D\u7EA7\u5DF2\u542F\u7528\uFF1A${models.join(" \u2192 ")}`);
     }
   }
+  /**
+   * 她所在城市的当地时间 `HH:MM`（来自 raw 的 UI 快照）。
+   *
+   * 自拍模板里的 `{time}` / `{clock}` 用它：不能用本机时间 —— 她可能在
+   * 另一个时区，本机中午对她那边可能是深夜。取不到时返回空串，
+   * 由 `describeTime()` 退回本机时间，只影响描述词，不影响生图。
+   */
+  async localClock() {
+    try {
+      const snap = await this.snapshot();
+      const clock = typeof snap.clock === "string" ? snap.clock.trim() : "";
+      return /^([01]\d|2[0-3]):[0-5]\d$/.test(clock) ? clock : null;
+    } catch {
+      return null;
+    }
+  }
   /** 主动汇报附图：用汇报文本 + 当前状态生成，不写上游 photo 事件。 */
   async reportImage(scene) {
     const options = this.selfieOptions();
@@ -1139,7 +1224,8 @@ var RawBridge = class {
 
 \u6B64\u523B\uFF1A${this.now()}` : this.now();
     try {
-      const image = await generateSelfieBytes(prompt, options, this.proxyFetch, this.log);
+      const clock = await this.localClock();
+      const image = await generateSelfieBytes(prompt, options, this.proxyFetch, this.log, clock ?? void 0);
       return image.bytes;
     } catch (e) {
       this.log.warn(`\u6C47\u62A5\u914D\u56FE\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);

@@ -135,8 +135,18 @@ astrbot_plugin_world_journey/
 
 `selfie_api` / `selfie_key` / `selfie_model` 留空则沿用 `image_api` / `image_key` /
 `image_model`。`image_model` 是**列表**：按顺序尝试，前一个报错就换下一个，全都失败才放弃；
-`selfie_model` 留空时自拍也走这条降级链。`selfie_prompt` 可自定义，支持 `{scene}`（上游风景提示词）和
-`{subject}`（默认「她本人」）；默认显示完整内置模板，留空保存会自动回填。
+`selfie_model` 留空时自拍也走这条降级链。`selfie_prompt` 可自定义，支持：
+
+- `{scene}`：上游风景提示词；
+- `{subject}`：主体称呼（默认「她本人」）；
+- `{time}`：**时段描述词**，如「清晨」「正午」「黄昏」「暮色」「入夜」「午夜前」；
+- `{clock}`：**她所在城市的当地时间**，`HH:MM`，如 `18:12`。
+
+时段按她当地的分钟数分段，从午夜到午夜前共 23 档（凌晨、拂晓、黎明、破晓、晨光初现、
+清晨、早晨、上午、上午将尽、临近正午、正午、午后、下午、下午将尽、傍晚、黄昏、暮色、
+入夜、夜晚、深夜、午夜前等），比「早/中/晚」细，专门给光线用。
+模板里没写 `{time}` / `{clock}` 的老模板，升级后会自动把时间补在末尾，不用改配置。
+默认显示完整内置模板，留空保存会自动回填。
 
 注意：
 
@@ -258,7 +268,7 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | `selfie_reference` | 空 | 自拍参考图（WebUI 上传） |
 | `selfie_reference_path` | 空 | 参考图绝对路径/URL（可选） |
 | `selfie_subject` | `她本人` | 提示词主体 |
-| `selfie_prompt` | 内置模板 | 自拍模板，可用 `{scene}`/`{subject}`；留空保存回填 |
+| `selfie_prompt` | 内置模板 | 自拍模板，可用 `{scene}`/`{subject}`/`{time}`/`{clock}`；留空保存回填 |
 | `selfie_mode` | `edit` | `edit` / `generation` / `native` |
 | `selfie_native_url` | 空 | native 完整端点，留空自动拼 |
 | `selfie_api/key/model` | 空 | 留空沿用生图配置（`image_model` 列表按顺序降级） |
