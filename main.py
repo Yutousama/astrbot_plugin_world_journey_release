@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from datetime import datetime
 from typing import Any
 
 from astrbot.api import logger
@@ -36,6 +37,7 @@ from .config_map import write_engine_config
 from .defaults import DEFAULT_SELFIE_PROMPT
 from .event_pump import EventPump
 from .reset import clear_memory_dir
+from .upstream_version import downgrade_hint, newest_version, read_pkg_version
 
 PLUGIN_NAME = "astrbot_plugin_world_journey"
 
@@ -63,6 +65,8 @@ class WorldJourneyPlugin(Star):
         self._photo_task: asyncio.Task[None] | None = None
         self._recent_reports: list[str] = []
         self._report_target = ""
+        # 上游源码被装回旧版时的提示（/journey_debug 里也显示）。
+        self._upstream_hint = ""
 
     def _normalize_selfie_prompt(self) -> None:
         """空模板回填默认值，并写回 AstrBot 配置，保证设置页能看到。"""
@@ -89,6 +93,7 @@ class WorldJourneyPlugin(Star):
             logger.error("[world-journey] sidecar 启动失败：%s", exc)
             return
         self._start_pump()
+        self._check_upstream_versions()
         try:
             health = await self.bridge.health()
             logger.info(
@@ -517,6 +522,14 @@ class WorldJourneyPlugin(Star):
             health = await self.bridge.health()
             lines.insert(1, f"上游版本：{health.get('upstreamVersion')}")
             lines.insert(2, f"sidecar 版本：{health.get('version')}")
+        raw_version = read_pkg_version(RAW_DIR / "package.json")
+        recorded = self._load_upstream_state()["newestVersion"]
+        if raw_version:
+            lines.append(f"上游源码：{raw_version}")
+        if recorded and recorded != raw_version:
+            lines.append(f"记录的最新上游：{recorded}")
+        if self._upstream_hint:
+            lines.append(f"提示：{self._upstream_hint}")
         if self.bridge.diagnostics:
             lines.append("sidecar 最近输出：")
             lines.append(self.bridge.diagnostics[-1500:])
@@ -559,8 +572,11 @@ class WorldJourneyPlugin(Star):
         if not self._can_control(event):
             yield event.plain_result("这个操作需要管理员。")
             return
-        if not bool(self.cfg.get("allow_upstream_update", True)):
-            yield event.plain_result("配置里关闭了 allow_upstream_update。")
+        if not bool(self.cfg.get("allow_upstream_update", False)):
+            yield event.plain_result(
+                "配置里关闭了 allow_upstream_update（默认关闭）。"
+                "确认信任 npm 上的上游包后，可在插件配置里打开它再试。"
+            )
             return
         version = self._command_arg(event) or "latest"
         yield event.plain_result(
@@ -649,6 +665,8 @@ class WorldJourneyPlugin(Star):
             await self.bridge.start()
             await self._register_tools()
             self._start_pump()
+            # 记下这次真正装上的上游版本，供以后判断「插件重装有没有把 raw 换回旧版」。
+            self._check_upstream_versions()
         except Exception as exc:
             with contextlib.suppress(Exception):
                 await self.bridge.stop()
@@ -769,7 +787,7 @@ class WorldJourneyPlugin(Star):
     def _write_engine_config(self) -> None:
         path = self.data_dir / "engine-config.json"
         try:
-            write_engine_config(path, self.cfg)
+            write_engine_config(path, self.cfg, log=logger)
         except Exception as exc:
             # extra_config 是最可能写坏的；退一步用其余字段，不要整个插件起不来。
             logger.warning("[world-journey] 配置解析失败，忽略 extra_config 重试：%s", exc)
@@ -777,9 +795,55 @@ class WorldJourneyPlugin(Star):
             fallback["extra_config"] = ""
             write_engine_config(path, fallback)
 
+    # ---------------- 上游版本记录 ----------------
+    def _upstream_state_path(self) -> Path:
+        return self.data_dir / "upstream-state.json"
+
+    def _load_upstream_state(self) -> dict[str, str]:
+        try:
+            raw = json.loads(self._upstream_state_path().read_text(encoding="utf-8-sig"))
+        except Exception:
+            return {"rawVersion": "", "newestVersion": "", "updatedAt": ""}
+        if not isinstance(raw, dict):
+            return {"rawVersion": "", "newestVersion": "", "updatedAt": ""}
+        return {key: str(raw.get(key) or "") for key in ("rawVersion", "newestVersion", "updatedAt")}
+
+    def _save_upstream_state(self, raw_version: str, newest: str) -> None:
+        payload = {
+            "rawVersion": raw_version,
+            "newestVersion": newest,
+            "updatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+        }
+        try:
+            path = self._upstream_state_path()
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+        except Exception as exc:
+            logger.warning("[world-journey] 上游版本记录写不进去：%s", exc)
+
+    def _check_upstream_versions(self) -> str:
+        """对比 raw 实际版本与历史记录；插件重装把 raw 换回旧版时给出可操作的提示。
+
+        raw/ 属于发布包，插件升级会整目录替换，于是跑过 /journey_update 的成果会被覆盖：
+        这里把「见过的最新上游版本」记在 plugin_data（不受插件目录替换影响），下次启动就能发现降级。
+        """
+        raw_version = read_pkg_version(RAW_DIR / "package.json")
+        if not raw_version:
+            return ""
+        state = self._load_upstream_state()
+        recorded = state["newestVersion"]
+        newest = newest_version(raw_version, recorded)
+        hint = downgrade_hint(raw_version, recorded)
+        if hint:
+            logger.warning("[world-journey] %s", hint)
+        if raw_version != state["rawVersion"] or newest != recorded or not state["updatedAt"]:
+            self._save_upstream_state(raw_version, newest)
+        self._upstream_hint = hint
+        return hint
+
     def _state_path(self) -> Path:
         return self.data_dir / "plugin_state.json"
-
     def _load_state(self) -> dict[str, Any]:
         path = self._state_path()
         try:

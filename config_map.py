@@ -1,6 +1,8 @@
 """AstrBot 插件配置 → 引擎配置。
 
 上游新增字段时，优先走 `extra_config`（一段 JSON 文本）覆盖；不需要改这里。
+注意 `extra_config` 会原样覆盖引擎字段，属于「用户显式填什么就生效什么」的兜底口，
+所以只记键名不记值（值里可能有 URL/密钥），文档里也提示了谨慎使用。
 secrets（高德/生图 key）只写文件，不打印。
 """
 from __future__ import annotations
@@ -43,8 +45,12 @@ FIELD_MAP: dict[str, str] = {
 PLUGIN_DIR = Path(__file__).resolve().parent
 
 
-def build_engine_config(config: dict[str, Any], base_dir: Path | None = None) -> dict[str, Any]:
-    """返回写入 `engine-config.json` 的完整对象。"""
+def build_engine_config(
+    config: dict[str, Any],
+    base_dir: Path | None = None,
+    log: Any = None,
+) -> dict[str, Any]:
+    """返回写入 `engine-config.json` 的完整对象。`log` 只用来提示 extra_config 覆盖了哪些键。"""
     engine: dict[str, Any] = {}
     for plugin_key, engine_key in FIELD_MAP.items():
         if plugin_key in config and config[plugin_key] is not None:
@@ -57,10 +63,22 @@ def build_engine_config(config: dict[str, Any], base_dir: Path | None = None) ->
         text = str(extra).strip()
         extra_obj = {}
         if text:
-            extra_obj = json.loads(text)
+            try:
+                extra_obj = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"extra_config 不是合法 JSON（{exc.msg}，位置 {exc.pos}）；"
+                    '只能填 JSON 对象，例如 {"someNewField": 123}'
+                ) from exc
     if extra_obj:
         if not isinstance(extra_obj, dict):
             raise ValueError("extra_config 必须是 JSON 对象")
+        # 只记键名：值里可能是 URL 或密钥，不写日志。
+        if callable(getattr(log, "warning", None)):
+            log.warning(
+                "[world-journey] extra_config 覆盖了引擎字段：%s；请确认这些字段的含义",
+                "、".join(sorted(str(key) for key in extra_obj)),
+            )
         engine.update(extra_obj)
 
     # AstrBot 的 file 类型给的是插件根相对路径（files/<字段>/<文件>）；
@@ -87,12 +105,12 @@ def build_engine_config(config: dict[str, Any], base_dir: Path | None = None) ->
     }
 
 
-def write_engine_config(path: Path, config: dict[str, Any]) -> None:
+def write_engine_config(path: Path, config: dict[str, Any], log: Any = None) -> None:
     """原子写；sidecar 自己按 mtime 热重载。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     # AstrBot 的 file 类型把上传文件放在插件数据目录（与 engine-config.json 同级）；
     # 所以这里用 path.parent 作为相对路径基准。
-    payload = build_engine_config(config, path.parent)
+    payload = build_engine_config(config, path.parent, log)
     tmp = path.with_name(f"{path.name}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)

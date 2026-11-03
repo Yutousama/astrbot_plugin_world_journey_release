@@ -788,7 +788,7 @@ function stringOf(value) {
 }
 
 // adapter/bridge.ts
-var BRIDGE_VERSION = "1.0.2";
+var BRIDGE_VERSION = true ? "1.0.3" : "dev";
 function readLocalNowPlaying(dataDir) {
   try {
     const path = join8(dataDir, "nowplaying.json");

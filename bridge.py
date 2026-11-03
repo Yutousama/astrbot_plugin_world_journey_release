@@ -1,7 +1,10 @@
 """sidecar 进程管理 + 回环 HTTP 客户端。
 
 这一层是 Python 侧唯一碰 AstrBot 之外进程的地方：
-- 找 Node（>=22），spawn `engine/sidecar.mjs serve`
+- 找 Node（>=22.7），spawn `engine/sidecar.mjs serve`
+- 探测这个 Node 能不能跑上游 TS：Node 22.7–25 用 `--experimental-transform-types`；
+  Node 26 起这个 flag 被移除（`process.features.typescript` 也没有 `transform` 取值了），
+  改用插件内置的 `engine/amaro` 转换器（`--import` 一个 SWC/WASM loader）
 - 读 stdout 的 `{"event":"listening","port":N}`，带 token 调 API
 - 心跳、看门狗、退出清理
 """
@@ -24,6 +27,9 @@ SIDECAR = PLUGIN_DIR / "engine" / "sidecar.mjs"
 UPDATER = PLUGIN_DIR / "engine" / "update.mjs"
 RAW_DIR = PLUGIN_DIR / "raw"
 PROMPT_FILE = RAW_DIR / "ENV_PROMPT.md"
+# Node 26 起没有内置 TS 转换能力，用 amaro（Node 官方 SWC/WASM 包）补齐；
+# 这个 loader 只做「import .ts 时现场转换」，raw/ 仍是磁盘上的 TS，热更新不受影响。
+AMARO_HOOK = PLUGIN_DIR / "engine" / "amaro" / "register-transform.mjs"
 
 
 class BridgeError(RuntimeError):
@@ -57,6 +63,8 @@ class SidecarBridge:
         self._stopping = False
         self._restarts = 0
         self._stderr_tail: list[str] = []
+        # 跑上游 TS 的方式：'native'（Node 自带 flag）或 'amaro'（插件内置转换器）。
+        self._ts_mode: str | None = None
 
     @property
     def ready(self) -> bool:
@@ -92,7 +100,7 @@ class SidecarBridge:
             args = [
                 await self._node_path(),
                 "--no-warnings",
-                "--experimental-transform-types",
+                *self._ts_flags(),
                 str(SIDECAR),
                 "serve",
                 "--data", str(self.engine_dir),
@@ -198,9 +206,57 @@ class SidecarBridge:
         major, minor = int(match.group(1)), int(match.group(2))
         if major < 22 or (major == 22 and minor < 7):
             raise BridgeError(
-                f"需要 Node 22.7+（使用 --experimental-transform-types），当前：{text}；"
+                f"需要 Node 22.7+（上游源码是 TypeScript，运行时要用 Node 的 TS 支持），当前：{text}；"
                 "可在插件配置里指定 node_path"
             )
+        # 版本号只决定下限；能不能转换 TS 要实测（Node 26 起移除了 transform 能力）。
+        self._ts_mode = await self._detect_ts_mode(path, text)
+
+    async def _detect_ts_mode(self, path: str, version: str) -> str:
+        """返回 'native' 或 'amaro'；都不行就抛 BridgeError 并给出可执行的下一步。"""
+        if await self._probe_transform_types(path):
+            return "native"
+        if AMARO_HOOK.exists():
+            self.log.info(
+                "[world-journey] Node %s 没有内置 TypeScript 转换（Node 26 起移除了 "
+                "--experimental-transform-types），改用插件内置转换器 engine/amaro。",
+                version,
+            )
+            return "amaro"
+        raise BridgeError(
+            f"Node {version} 不能转换 TypeScript：Node 22.7–25.x 有 --experimental-transform-types，"
+            f"26 起被移除；而本插件又缺少内置转换器 {AMARO_HOOK}。"
+            "请装 Node 22.7–25.x（推荐 24 LTS），或把插件更新到 v1.0.3+（会带 engine/amaro）。"
+        )
+
+    async def _probe_transform_types(self, path: str) -> bool:
+        """真跑一次探针：老 Node 会回 transform，26+ 直接 `bad option` 非 0 退出。"""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                path,
+                "--no-warnings",
+                "--experimental-transform-types",
+                "-p",
+                "process.features.typescript",
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if os.name == "nt" else 0,
+            )
+            out, _err = await asyncio.wait_for(proc.communicate(), timeout=10)
+        except Exception:
+            return False
+        return proc.returncode == 0 and (out or b"").decode("utf-8", "replace").strip() == "transform"
+
+    def _ts_flags(self) -> list[str]:
+        """启动 sidecar 前拼 TS 相关参数；amaro 需要 --enable-source-maps 才有准的行号。
+
+        `--import` 收的是模块地址：Windows 上直接给 `D:\\...` 会被当成 scheme `d:` 拒绝，
+        所以这里传 `file://` URI。
+        """
+        if self._ts_mode == "amaro":
+            return ["--enable-source-maps", "--import", AMARO_HOOK.as_uri()]
+        return ["--experimental-transform-types"]
 
     async def _node_path(self) -> str:
         raw = str(self.config.get("node_path") or "").strip()

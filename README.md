@@ -5,7 +5,7 @@
 - 发布仓库：<https://github.com/Yutousama/astrbot_plugin_world_journey_release>
 - 开发仓库：<https://github.com/Yutousama/astrbot_plugin_world_journey>
 - 插件作者：**yutou**
-- 版本：**v1.0.2**
+- 版本：**v1.0.3**
 
 旅行引擎来自上游 [`coopani-world-journey`](https://www.npmjs.com/package/coopani-world-journey)
 （原作者 Mr.Q，MIT），感谢原项目；本插件只做 AstrBot 接入，上游源码可在插件内从 npm 更新
@@ -15,7 +15,9 @@
 
 ## 安装
 
-1. 需要 AstrBot **4.16+** 和 Node.js **22.7+**（运行时使用 `--experimental-transform-types`）。
+1. 需要 AstrBot **4.16+** 和 Node.js **22.7+**。Node 22.7–25.x 用自带的
+   `--experimental-transform-types` 跑上游 TS；**Node 26+ 同样支持**——该版本移除了这个 flag，
+   插件会自动改用随包发布的 `engine/amaro` 转换器。推荐 24 LTS。
 2. AstrBot WebUI → 插件 → 从 GitHub 安装，填：
 
    ```text
@@ -172,8 +174,15 @@ LLM 工具由引擎自动注册（0.5.25 是 6 个，0.5.16 是 5 个，以实�
 5. 重启 sidecar、重新注册工具、恢复事件泵；
 6. 新版本起不来则**自动回滚**到旧 `raw/` 并重启。
 
-配置里 `allow_upstream_update` 控制是否允许；`upstream_package`、`upstream_registry` 可换源；
-`upstream_source` 只是展示页面。运行时更新只换上游源码，本插件/Python 代码仍随插件版本更新。
+`allow_upstream_update` **默认关闭**，要用时才在配置里打开（理由见「安全说明」）；
+`upstream_package`、`upstream_registry` 可换源；`upstream_source` 只是展示页面。
+运行时更新只换上游源码，本插件/Python 代码仍随插件版本更新。
+Node 26+ 也一样：`engine/amaro` 只在启动 sidecar 时参与，替换 `raw/` 不碰它。
+
+注意：**重装/升级插件会把 `raw/` 换回发布包里的基线版本**。如果你之前用 `/journey_update`
+升到过更高版本，重装后看起来会「又升级了一次」——插件启动时会对比
+`plugin_data/upstream-state.json` 里记录的历史版本，发现被换回旧版就在日志里 warn，
+`/journey_debug` 也会显示当前源码版本与记录的最新版本两行。
 
 ## 提示词
 
@@ -237,7 +246,7 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | `report_image_probability` | 0.3 | 汇报配图概率 |
 | `admin_only_controls` | 开 | 出发/拍照/同步/更新仅管理员 |
 | `allow_reset` | 开 | 允许 `/journey_reset`（始终仅管理员） |
-| `allow_upstream_update` | 开 | 允许 `/journey_update` |
+| `allow_upstream_update` | 关 | 允许 `/journey_update`（默认关闭，见下方说明） |
 | `upstream_package` | `coopani-world-journey` | 上游 npm 包名 |
 | `upstream_registry` | `https://registry.npmjs.org` | npm registry |
 | `upstream_source` | npm 页面 | 展示用源地址 |
@@ -256,6 +265,19 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 
 `extra_config` 示例：`{"someNewField": 123}`，会覆盖同名引擎字段。
 
+⚠️ `extra_config` 会**原样写进 `engine-config.json` 并覆盖插件表单里的映射**：只填你确认过含义的
+上游字段，别把密钥/接口地址放进来（上面有专门的 `amap_key`、`image_key` 等字段），字段写错可能让
+引擎行为异常。插件启动时会用 warn 日志列出被覆盖的**键名**（不打印值），方便核对。
+
+## 安全说明
+
+- **运行时代码替换默认关闭**：`/journey_update` 会从 npm 下载上游 tarball 并整体替换 `raw/`，
+  虽然有 sha512 校验、失败自动回滚、仅管理员可触发，但它等于允许「运行时换代码」，所以
+  `allow_upstream_update` 默认是 **关**。确认信任 `coopani-world-journey` 这个 npm 包后再打开。
+- **网络边界**：sidecar 只监听 `127.0.0.1`，每次启动带随机 token；对外请求只到高德 / Open-Meteo /
+  Nominatim 和用户自己配的生图接口。
+- **密钥**：只写在本地 `engine-config.json`，不进日志、不进提示词。
+
 ## 数据
 
 `<AstrBot data>/plugin_data/astrbot_plugin_world_journey/`：
@@ -267,6 +289,7 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 - `engine/events.jsonl`：事件流
 - `engine-config.json`：配置映射
 - `plugin_state.json`：last_seq / last_umo
+- `upstream-state.json`：见过的上游源码版本（重装插件被换回基线时用来提示）
 - `logs/sidecar.log`：sidecar 日志
 
 `memory_dir` 留空时日记和旅行记忆在 `engine/diary`；填同步盘则跟人走。
@@ -278,6 +301,9 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 
 - **插件加载失败**：看 `data/logs/astrbot.log` 里 `astrbot_plugin_world_journey` 的报错。
 - **提示 Node 不可用**：装 Node 22.7+，或配置 `node_path` 指向 `node.exe`。
+- **`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` / `parameter property`**：Node 26+ 移除了
+  `--experimental-transform-types`，说明这份插件还没有随包的 `engine/amaro`；把插件更新到
+  v1.0.3+（或临时改用 Node 24 LTS）。
 - **sidecar 启动超时**：看 `plugin_data/.../logs/sidecar.log`；确认 22.7+ 和端口。
 - **重载后没有孤儿进程**：插件用真实 `node.exe` + 心跳 + terminate；如果还有，查 `journey_debug`。
 - **主动消息没来**：确认 `proactive_enabled`、`event_target`（或先和机器人说话）、以及 sidecar 已就绪。

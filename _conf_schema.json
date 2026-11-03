@@ -11,10 +11,10 @@
     "hint": "留空自动从 PATH 找 node。需要 Node 22.7+；可填 C:\\Program Files\\nodejs\\node.exe 或所在目录。"
   },
   "allow_upstream_update": {
-    "description": "允许从 npm 更新上游源码",
+    "description": "允许从 npm 更新上游源码（默认关闭）",
     "type": "bool",
-    "default": true,
-    "hint": "/journey_update 会下载并替换插件目录下的 raw/；失败会自动回滚。只有管理员能执行。"
+    "default": false,
+    "hint": "打开后 /journey_update 会从 npm 下载 tarball 覆盖插件目录下的 raw/（sha512 校验，失败自动回滚，只有管理员能执行），等于允许运行时替换代码；确认信任上游来源再开。"
   },
   "upstream_package": {
     "description": "上游 npm 包名",
@@ -298,10 +298,10 @@
     "hint": "0 = 自动选空闲端口；调试时可固定。"
   },
   "extra_config": {
-    "description": "额外引擎配置（JSON）",
+    "description": "额外引擎配置（JSON，谨慎使用）",
     "type": "text",
     "default": "",
-    "hint": "上游新增字段的兜底入口，例如 {\"someNewField\": 123}。会覆盖上面的映射。"
+    "hint": "只用于给上游新增字段兜底，会原样写进 engine-config.json 并覆盖上面的映射；密钥请用上面的专门字段，不要放这里；字段写错可能让引擎行为异常。示例：{\"someNewField\": 123}"
   },
   "log_level": {
     "description": "日志级别",
