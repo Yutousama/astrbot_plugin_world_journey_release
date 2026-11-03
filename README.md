@@ -134,7 +134,8 @@ astrbot_plugin_world_journey/
   `data:image/...` 参考图；适合 `wan2.7-image`。`selfie_native_url` 可覆盖完整端点。
 
 `selfie_api` / `selfie_key` / `selfie_model` 留空则沿用 `image_api` / `image_key` /
-`image_model`。`selfie_prompt` 可自定义，支持 `{scene}`（上游风景提示词）和
+`image_model`。`image_model` 是**列表**：按顺序尝试，前一个报错就换下一个，全都失败才放弃；
+`selfie_model` 留空时自拍也走这条降级链。`selfie_prompt` 可自定义，支持 `{scene}`（上游风景提示词）和
 `{subject}`（默认「她本人」）；默认显示完整内置模板，留空保存会自动回填。
 
 注意：
@@ -228,7 +229,10 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 
 大部分字段和上游一致：`home_city`、`speed`、`beat_gap`、`rest_days`、`ask_before_depart`、
 `max_trip_months`、`with_user`、`money_enabled`、`budget`、`memory_dir`、`amap_key`、
-`image_api/key/model/style`。
+`image_api/key/style`。
+
+`image_model` 是**列表**（`生图模型名`）：按填写顺序尝试，第一个模型报错就自动换下一个，
+全部失败才抛出错误。留空按 `gpt-image-1` 试。
 
 套壳自己的：
 
@@ -257,7 +261,7 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | `selfie_prompt` | 内置模板 | 自拍模板，可用 `{scene}`/`{subject}`；留空保存回填 |
 | `selfie_mode` | `edit` | `edit` / `generation` / `native` |
 | `selfie_native_url` | 空 | native 完整端点，留空自动拼 |
-| `selfie_api/key/model` | 空 | 留空沿用生图配置 |
+| `selfie_api/key/model` | 空 | 留空沿用生图配置（`image_model` 列表按顺序降级） |
 | `selfie_image_field` | `image_url` | generation 模式图片字段 |
 | `selfie_size` | `1024x1024` | 自拍尺寸 |
 | `offline` | 关 | 不查天气/酒店/生图 |

@@ -1,8 +1,8 @@
 {
   "package": "coopani-world-journey",
   "version": "0.5.26",
-  "sha256": "b29d0657fdf32e0181b108df77524fe64d5fc120d92bc2e7bbec4696f1f924ef",
+  "sha256": "ef9d58254583fbe7f5ae3372a9a949c1b9dfd8d3c600b9d754194bafe04b187b",
   "fileCount": 36,
-  "builtAt": "2026-11-03T12:45:37.883Z",
+  "builtAt": "2026-11-03T17:13:30.851Z",
   "bridgeVersion": "1.0.3"
 }

@@ -507,10 +507,12 @@ function buildSelfiePrompt(original, opts) {
   const template = opts.promptTemplate.trim() || DEFAULT_PROMPT;
   return template.replaceAll("{scene}", scene).replaceAll("{subject}", subject).trim();
 }
-function installSelfieProxy(opts, log, fetchImpl = globalThis.fetch) {
-  if (!opts.enabled) return () => {
-  };
-  if (opts.references.length === 0) {
+function installPhotoProxy(opts, log, fetchImpl = globalThis.fetch) {
+  const models = modelListOf(opts.models);
+  const selfie = opts.selfie?.enabled === true ? opts.selfie : null;
+  if (!selfie && models.length < 2) return { uninstall: () => {
+  }, fetch: fetchImpl };
+  if (selfie && selfie.references.length === 0) {
     log.warn("\u81EA\u62CD\u5DF2\u5F00\u542F\uFF0C\u4F46\u6CA1\u6709\u53C2\u8003\u56FE\uFF1B\u7167\u7247\u4F1A\u5931\u8D25\u800C\u4E0D\u662F\u9000\u56DE\u7A7A\u955C\u3002\u8BF7\u5728\u63D2\u4EF6\u914D\u7F6E\u91CC\u4E0A\u4F20 selfie_reference\u3002");
   }
   const original = fetchImpl;
@@ -519,25 +521,71 @@ function installSelfieProxy(opts, log, fetchImpl = globalThis.fetch) {
     if (!isGenerationRequest(url, init)) return original(input, init);
     const body = parseJsonBody(init?.body);
     const prompt = typeof body?.prompt === "string" ? body.prompt : "";
-    if (!prompt) return original(input, init);
-    try {
-      const result = await generateSelfie(opts, body ?? {}, prompt, original, log);
-      return jsonResponse({ data: [result] });
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      log.warn(`\u81EA\u62CD\u751F\u56FE\u5931\u8D25\uFF1A${message}`);
-      return jsonResponse({ error: { message } }, 502);
+    if (!body || !prompt) return original(input, init);
+    const selfieModels = selfie ? modelListOf(selfie.model) : [];
+    const candidates = selfie ? selfieModels.length ? selfieModels : [stringOf(body.model).trim() || "gpt-image-1"] : models;
+    if (candidates.length === 0) return original(input, init);
+    let reference = null;
+    if (selfie) {
+      try {
+        reference = await loadSelfieReference(selfie, original);
+      } catch (e) {
+        const message2 = errText(e);
+        log.warn(`\u81EA\u62CD\u751F\u56FE\u5931\u8D25\uFF1A${message2}`);
+        return jsonResponse({ error: { message: message2 } }, 502);
+      }
     }
+    const failures = [];
+    for (const model of candidates) {
+      try {
+        if (selfie) {
+          const result = await generateSelfieWithModel(selfie, model, body, prompt, original, log, reference);
+          return jsonResponse({ data: [result] });
+        }
+        const res = await replayWithModel(original, url, init ?? {}, body, model);
+        if (res.ok) return res;
+        const detail = await peekError(res);
+        if (shouldKeepResponse(res.status, detail)) return res;
+        failures.push(`${model}\uFF1AHTTP ${res.status}${detail ? `\uFF1A${detail}` : ""}`);
+      } catch (e) {
+        const why = errText(e);
+        failures.push(`${model}\uFF1A${why}`);
+        if (!selfie) throw e;
+      }
+    }
+    const message = candidates.length > 1 ? `\u6240\u6709\u751F\u56FE\u6A21\u578B\u90FD\u5931\u8D25\u4E86\uFF08${failures.join("\uFF1B")}\uFF09` : failures[0] ?? "\u751F\u56FE\u5931\u8D25";
+    log.warn(`\u751F\u56FE\u5931\u8D25\uFF1A${message}`);
+    return jsonResponse({ error: { message } }, 502);
   };
   globalThis.fetch = wrapper;
-  return () => {
-    if (globalThis.fetch === wrapper) globalThis.fetch = original;
+  return {
+    fetch: original,
+    uninstall: () => {
+      if (globalThis.fetch === wrapper) globalThis.fetch = original;
+    }
   };
 }
 async function generateSelfieBytes(prompt, opts, fetchImpl = globalThis.fetch, log = { info: () => {
 }, warn: () => {
 } }) {
-  const result = await generateSelfie(opts, {}, prompt, fetchImpl, log);
+  const reference = await loadSelfieReference(opts, fetchImpl);
+  const models = modelListOf(opts.model);
+  const candidates = models.length ? models : ["gpt-image-1"];
+  const failures = [];
+  let result = null;
+  for (const model of candidates) {
+    try {
+      result = await generateSelfieWithModel(opts, model, {}, prompt, fetchImpl, log, reference);
+      break;
+    } catch (e) {
+      const why = errText(e);
+      failures.push(candidates.length > 1 ? `${model}\uFF1A${why}` : why);
+      log.warn(`\u81EA\u62CD\u6A21\u578B ${model} \u5931\u8D25\uFF1A${why}`);
+    }
+  }
+  if (!result) {
+    throw new Error(candidates.length > 1 ? `\u81EA\u62CD\u6240\u6709\u6A21\u578B\u90FD\u5931\u8D25\u4E86\uFF08${failures.join("\uFF1B")}\uFF09` : failures[0] ?? "\u81EA\u62CD\u5931\u8D25");
+  }
   if (result.b64_json) {
     const bytes = new Uint8Array(Buffer.from(result.b64_json, "base64"));
     const mime = sniffImage(bytes);
@@ -553,29 +601,25 @@ async function generateSelfieBytes(prompt, opts, fetchImpl = globalThis.fetch, l
   }
   throw new Error("\u81EA\u62CD\u63A5\u53E3\u6CA1\u6709\u8FD4\u56DE\u56FE\u7247");
 }
-async function generateSelfie(opts, upstreamBody, originalPrompt, fetchImpl, log) {
+async function generateSelfieWithModel(opts, model, upstreamBody, originalPrompt, fetchImpl, log, reference) {
   const api = opts.api.trim().replace(/\/+$/, "");
   if (!api) throw new Error("\u81EA\u62CD\u751F\u56FE\u63A5\u53E3\u6CA1\u586B\uFF08selfie_api / image_api\uFF09");
-  const references = opts.references.filter(Boolean);
-  if (!references.length) throw new Error("\u6CA1\u6709\u53C2\u8003\u56FE\uFF1A\u8BF7\u5728\u63D2\u4EF6\u914D\u7F6E\u91CC\u4E0A\u4F20 selfie_reference");
-  const first = await loadReference(references[0], fetchImpl);
   const prompt = buildSelfiePrompt(originalPrompt, opts);
   const size = opts.size.trim() || stringOf(upstreamBody.size) || "1024x1024";
-  const model = opts.model.trim() || stringOf(upstreamBody.model) || "gpt-image-1";
   const headers = {};
   if (opts.key.trim()) headers.authorization = `Bearer ${opts.key.trim()}`;
   if (opts.mode === "native") {
-    return await generateNative(opts, api, model, size, prompt, first, headers, fetchImpl, log);
+    return await generateNative(opts, api, model, size, prompt, reference, headers, fetchImpl, log);
   }
   if (opts.mode === "generation") {
-    const dataUrl = `data:${first.mime};base64,${Buffer.from(first.bytes).toString("base64")}`;
+    const dataUrl = `data:${reference.mime};base64,${Buffer.from(reference.bytes).toString("base64")}`;
     const payload = {
       model,
       prompt,
       n: 1,
       size,
       response_format: "b64_json",
-      [opts.imageField.trim() || "image_url"]: opts.imageField.trim() === "image" ? Buffer.from(first.bytes).toString("base64") : dataUrl
+      [opts.imageField.trim() || "image_url"]: opts.imageField.trim() === "image" ? Buffer.from(reference.bytes).toString("base64") : dataUrl
     };
     const res2 = await postJson(`${api}/images/generations`, headers, payload, fetchImpl);
     log.info(`\u81EA\u62CD\u63A5\u53E3\u54CD\u5E94\uFF1AHTTP ${res2.status}\uFF08generation\uFF09\uFF0Ccontent-length=${res2.headers.get("content-length") ?? "?"}`);
@@ -589,12 +633,12 @@ async function generateSelfie(opts, upstreamBody, originalPrompt, fetchImpl, log
   form.set("n", "1");
   form.set("size", size);
   form.set("response_format", "b64_json");
-  form.set("image", new Blob([first.bytes], { type: first.mime }), first.name);
+  form.set("image", new Blob([reference.bytes], { type: reference.mime }), reference.name);
   let res = await fetchImpl(`${api}/images/edits`, { method: "POST", headers, body: form });
   if (res.status === 400 || res.status === 415) {
     const peek = (await res.clone().text()).slice(0, 500);
     if (/multipart|content-type|image|图片/i.test(peek)) {
-      const dataUrl = `data:${first.mime};base64,${Buffer.from(first.bytes).toString("base64")}`;
+      const dataUrl = `data:${reference.mime};base64,${Buffer.from(reference.bytes).toString("base64")}`;
       res = await postJson(`${api}/images/edits`, headers, {
         model,
         prompt,
@@ -613,6 +657,55 @@ async function generateSelfie(opts, upstreamBody, originalPrompt, fetchImpl, log
   const image = parseImagePayload(await readJson(res, log));
   logSelfieImage(image, log);
   return image;
+}
+async function loadSelfieReference(opts, fetchImpl) {
+  const references = opts.references.filter(Boolean);
+  if (!references.length) throw new Error("\u6CA1\u6709\u53C2\u8003\u56FE\uFF1A\u8BF7\u5728\u63D2\u4EF6\u914D\u7F6E\u91CC\u4E0A\u4F20 selfie_reference");
+  return loadReference(references[0], fetchImpl);
+}
+function replayWithModel(original, url, init, body, model) {
+  const headers = new Headers(init.headers ?? {});
+  if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  return original(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ...body, model }),
+    signal: init.signal ?? void 0
+  });
+}
+function shouldKeepResponse(status, detail) {
+  if (status === 401 || status === 403) return true;
+  if (status === 400 && /image_size|response_format|watermark|水印|尺寸|分辨率|\bsize\b/i.test(detail)) {
+    return true;
+  }
+  return false;
+}
+async function peekError(res) {
+  try {
+    const text2 = (await res.clone().text()).slice(0, 500);
+    try {
+      const o = JSON.parse(text2);
+      const msg = typeof o.error === "object" && o.error ? o.error.message : o.message ?? o.error;
+      if (typeof msg === "string" && msg.trim()) return msg.trim().slice(0, 200);
+    } catch {
+    }
+    return text2.replace(/\s+/g, " ").trim().slice(0, 200);
+  } catch {
+    return "";
+  }
+}
+function errText(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+function modelListOf(value) {
+  const raw = typeof value === "string" ? value.split(/[\n,，;；]+/) : Array.isArray(value) ? value : [];
+  const out = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const id = item.trim();
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
 }
 async function generateNative(opts, api, model, size, prompt, reference, headers, fetchImpl, log) {
   const nativeUrl = (opts.nativeUrl ?? "").trim() || `${new URL(api).origin}/api/v1/services/aigc/multimodal-generation/generation`;
@@ -821,6 +914,8 @@ var RawBridge = class {
   rawDefaults = null;
   watcher = null;
   uninstallSelfie = null;
+  /** 装代理之前的 fetch；主动汇报自己发请求时用它，避免被自己的代理再拦一次。 */
+  proxyFetch = globalThis.fetch;
   constructor(opts) {
     this.opts = opts;
     this.dataDir = opts.dataDir;
@@ -867,6 +962,7 @@ var RawBridge = class {
   async stop() {
     this.uninstallSelfie?.();
     this.uninstallSelfie = null;
+    this.proxyFetch = globalThis.fetch;
     const world = this.world;
     this.world = null;
     this.raw = null;
@@ -991,12 +1087,14 @@ var RawBridge = class {
     const rawRefs = Array.isArray(cfg.selfieReference) ? cfg.selfieReference : typeof cfg.selfieReference === "string" ? [cfg.selfieReference] : [];
     const references = rawRefs.filter((v) => typeof v === "string" && v.trim().length > 0).map((ref) => this.resolveReference(ref.trim()));
     const modeRaw = stringOf2(cfg.selfieMode).toLowerCase();
+    const selfieModel = stringOf2(cfg.selfieModel).trim();
     return {
       enabled: true,
       references,
       api: stringOf2(cfg.selfieApi) || stringOf2(cfg.imageApi),
       key: stringOf2(cfg.selfieKey) || stringOf2(cfg.imageKey),
-      model: stringOf2(cfg.selfieModel) || stringOf2(cfg.imageModel),
+      // 自拍模型没单独填时，用「生图模型名」的整个列表按顺序降级。
+      model: selfieModel ? [selfieModel] : this.imageModels(),
       mode: modeRaw === "generation" || modeRaw === "native" ? modeRaw : "edit",
       nativeUrl: stringOf2(cfg.selfieNativeUrl),
       size: stringOf2(cfg.selfieSize),
@@ -1005,15 +1103,32 @@ var RawBridge = class {
       promptTemplate: stringOf2(cfg.selfiePrompt)
     };
   }
+  /**
+   * 「生图模型名」列表。上游只认一个字符串，所以列表由套壳维护：
+   * Python 侧写成 `imageModels`，老的 `imageModel` 字符串也兼容。
+   */
+  imageModels() {
+    const cfg = this.cfg;
+    if (!cfg) return [];
+    return modelListOf2(cfg.imageModels ?? cfg.imageModel);
+  }
   installSelfie() {
     this.uninstallSelfie?.();
     this.uninstallSelfie = null;
-    const options = this.selfieOptions();
-    if (!options) return;
-    this.uninstallSelfie = installSelfieProxy(options, this.log);
-    this.log.info(
-      `\u81EA\u62CD\u5957\u58F3\u5DF2\u542F\u7528\uFF1A${options.mode} \u6A21\u5F0F\uFF0C\u53C2\u8003\u56FE ${options.references.length} \u5F20${options.references.length ? "" : "\uFF08\u7F3A\u5931\uFF0C\u7167\u7247\u4F1A\u5931\u8D25\uFF09"}`
-    );
+    const selfie = this.selfieOptions();
+    const models = this.imageModels();
+    if (!selfie && models.length === 0) return;
+    const proxy = installPhotoProxy({ models, selfie }, this.log);
+    this.uninstallSelfie = proxy.uninstall;
+    this.proxyFetch = proxy.fetch;
+    if (selfie) {
+      this.log.info(
+        `\u81EA\u62CD\u5957\u58F3\u5DF2\u542F\u7528\uFF1A${selfie.mode} \u6A21\u5F0F\uFF0C\u53C2\u8003\u56FE ${selfie.references.length} \u5F20${selfie.references.length ? "" : "\uFF08\u7F3A\u5931\uFF0C\u7167\u7247\u4F1A\u5931\u8D25\uFF09"}`
+      );
+    }
+    if (models.length > 1) {
+      this.log.info(`\u751F\u56FE\u6A21\u578B\u964D\u7EA7\u5DF2\u542F\u7528\uFF1A${models.join(" \u2192 ")}`);
+    }
   }
   /** 主动汇报附图：用汇报文本 + 当前状态生成，不写上游 photo 事件。 */
   async reportImage(scene) {
@@ -1024,7 +1139,7 @@ var RawBridge = class {
 
 \u6B64\u523B\uFF1A${this.now()}` : this.now();
     try {
-      const image = await generateSelfieBytes(prompt, options, globalThis.fetch, this.log);
+      const image = await generateSelfieBytes(prompt, options, this.proxyFetch, this.log);
       return image.bytes;
     } catch (e) {
       this.log.warn(`\u6C47\u62A5\u914D\u56FE\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
@@ -1060,6 +1175,16 @@ function normalizeToolResult(value) {
 }
 function stringOf2(value) {
   return typeof value === "string" ? value : "";
+}
+function modelListOf2(value) {
+  const raw = typeof value === "string" ? value.split(/[\n,，;；]+/) : Array.isArray(value) ? value : [];
+  const out = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const id = item.trim();
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
 }
 
 // adapter/sim.ts

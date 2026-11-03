@@ -49,6 +49,7 @@ class WorldJourneyPlugin(Star):
         self._config_obj = config
         self.cfg: dict[str, Any] = config
         self._normalize_selfie_prompt()
+        self._normalize_image_model()
         self.plugin_dir = Path(__file__).resolve().parent
         try:
             self.data_dir = Path(StarTools.get_data_dir(PLUGIN_NAME))
@@ -74,6 +75,20 @@ class WorldJourneyPlugin(Star):
         if current:
             return
         self.cfg["selfie_prompt"] = DEFAULT_SELFIE_PROMPT
+        with contextlib.suppress(Exception):
+            self._config_obj.save_config()
+
+    def _normalize_image_model(self) -> None:
+        """老版本把「生图模型名」存成单个字符串；列表控件要数组，迁移一次并写回。
+
+        不迁移的话设置页会把这个字符串当成「只有一个字符」的列表来显示，
+        用户点开看到的模型名是残缺的。
+        """
+        current = self.cfg.get("image_model")
+        if not isinstance(current, str):
+            return
+        models = [part.strip() for part in re.split(r"[\n,，;；]+", current) if part.strip()]
+        self.cfg["image_model"] = models
         with contextlib.suppress(Exception):
             self._config_obj.save_config()
 

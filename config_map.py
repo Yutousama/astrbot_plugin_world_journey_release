@@ -27,7 +27,7 @@ FIELD_MAP: dict[str, str] = {
     "image_api": "imageApi",
     "image_style": "imageStyle",
     "image_key": "imageKey",
-    "image_model": "imageModel",
+    # image_model 是列表，单靠 FIELD_MAP 传不过去；在下面统一拆成 imageModels/imageModel。
     "selfie_enabled": "selfieEnabled",
     "selfie_reference": "selfieReference",
     "selfie_reference_path": "selfieReferencePath",
@@ -96,8 +96,19 @@ def build_engine_config(
         engine["imageApi"] = engine["selfieApi"]
     if not str(engine.get("imageKey") or "").strip() and str(engine.get("selfieKey") or "").strip():
         engine["imageKey"] = engine["selfieKey"]
-    if not str(engine.get("imageModel") or "").strip() and str(engine.get("selfieModel") or "").strip():
-        engine["imageModel"] = engine["selfieModel"]
+    # 生图模型名是**列表**（按顺序降级）。上游 raw 只认一个字符串，所以拆成两份：
+    # - imageModels：给套壳的 fetch 代理按顺序重试；
+    # - imageModel：只放第一个，作为上游请求的起点。
+    # extra_config 里显式写了 imageModel/imageModels 时优先（保持原来的覆盖语义）。
+    image_models = _model_list(engine.get("imageModels"))
+    if not image_models:
+        image_models = _model_list(engine.get("imageModel"))
+    if not image_models:
+        image_models = _model_list(config.get("image_model"))
+    if not image_models:
+        image_models = _model_list(engine.get("selfieModel"))
+    engine["imageModels"] = image_models
+    engine["imageModel"] = image_models[0] if image_models else ""
 
     return {
         "engine": engine,
@@ -127,4 +138,24 @@ def _resolve_references(value: Any, base_dir: Path) -> list[str]:
             out.append(text)
         else:
             out.append(str((base_dir / text).resolve()))
+    return out
+
+
+def _model_list(value: Any) -> list[str]:
+    """模型名统一成数组：兼容老配置的单个字符串，去空白、丢空项、去重、保持顺序。"""
+    if isinstance(value, str):
+        # 从文档里整段粘过来的，换行/逗号/分号分隔都认。
+        text = value.replace("，", ",").replace("；", ";").replace(";", ",")
+        raw: list[Any] = [line for chunk in text.split(",") for line in chunk.splitlines()]
+    elif isinstance(value, list):
+        raw = value
+    else:
+        raw = []
+    out: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        model = item.strip()
+        if model and model not in out:
+            out.append(model)
     return out

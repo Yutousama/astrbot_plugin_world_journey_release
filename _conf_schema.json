@@ -111,9 +111,9 @@
   },
   "image_model": {
     "description": "生图模型名",
-    "type": "string",
-    "default": "",
-    "hint": "各家不同；留空按 gpt-image-1 试。"
+    "type": "list",
+    "default": [],
+    "hint": "按顺序填多个模型 ID：第一个报错就自动换下一个，全都失败才放弃。留空按 gpt-image-1 试。"
   },
   "image_style": {
     "description": "画面风格",
@@ -174,7 +174,7 @@
     "description": "自拍模型名",
     "type": "string",
     "default": "",
-    "hint": "留空用 image_model。"
+    "hint": "留空用「生图模型名」列表，按顺序降级。"
   },
   "selfie_mode": {
     "description": "自拍接口模式",
