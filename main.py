@@ -324,21 +324,94 @@ class WorldJourneyPlugin(Star):
         return [text[i:i + size] for i in range(0, len(text), size)]
 
     # ---------------- 命令 ----------------
-    @filter.command("journey", alias={"旅行", "她在哪"})
+    @filter.command("journey", alias={"旅行", "她在哪", "今日计划", "行程"})
     async def journey(self, event: AstrMessageEvent):
-        """她此刻在哪、那边几点、今晚住哪、接下来做什么。"""
+        """她此刻在哪、那边几点、今天剩下怎么过、今晚住哪、这一趟花了多少。"""
         if not self._access_ok(event):
             self._deny_access(event)
             return
         try:
             await self._ensure_ready()
-            text = await self.bridge.now()
+            # `/api/now` 是她此刻那一段话；`/api/status` 是面板快照（时间轴 / 住宿 / 账目）。
+            # 两个都要：前者有身体感觉和「下一个点」，后者才排得出整天的表。
+            now_text = await self.bridge.now()
+            snap = await self.bridge.status()
         except Exception as exc:
             yield event.plain_result(f"旅行引擎没启动：{exc}")
             return
         self._note_umo(event)
-        for chunk in self._split_text(text):
+        for chunk in self._split_text(self._render_journey(now_text, snap)):
             yield event.plain_result(chunk)
+
+    @staticmethod
+    def _render_journey(now_text: str, snap: dict[str, Any]) -> str:
+        """`/journey` 的正文：上游那段「此刻」，加上计划与账目。
+
+        **只补 now 里没有的。** 上游的「此刻」已经说了今晚住什么档次、下一个点是什么，
+        再原样贴一遍就成了两段重复的话；这里补的是真店名、地址、完整时间轴和花费。
+        """
+        lines = [now_text.strip()]
+        mode = str(snap.get("mode") or "")
+        trip = snap.get("trip") or {}
+
+        if mode == "staying":
+            lodging = snap.get("lodging") or {}
+            label = str(lodging.get("name") or "").strip()
+            kind = str(lodging.get("kind") or "").strip()
+            if label:
+                room = f"{label}（{kind}）" if kind else label
+                price = lodging.get("price")
+                if isinstance(price, (int, float)) and price:
+                    room += f"，约 {int(price)} 元一晚"
+                lines.append(f"住处：{room}")
+                address = str(lodging.get("address") or "").strip()
+                if address:
+                    lines.append(f"　{address}")
+
+        # 时间轴对两种状态都成立：在路上时上游只给「到站」这一条，
+        # 到站后才有当天的作息表（plan 是在 `arrive()` 里才排的，不是结算出来的）。
+        timeline = [t for t in (snap.get("timeline") or []) if isinstance(t, dict)]
+        if timeline:
+            past = [t for t in timeline if t.get("past")]
+            future = [t for t in timeline if not t.get("past")]
+            lines.append("")
+            # 先摆刚过去的，再摆接下来的 —— 读起来是「走到这儿了，然后是这些」。
+            for item in past:
+                lines.append(f"  {item.get('at', '')}  {item.get('what', '')}（刚过去）")
+            if future:
+                lines.append("今天剩下的安排：" if mode == "staying" else "接下来：")
+                for item in future:
+                    lines.append(f"  {item.get('at', '')}  {item.get('what', '')}")
+            else:
+                lines.append("今天的安排都过完了。")
+
+        spend = WorldJourneyPlugin._spend_line(trip)
+        if spend:
+            lines.append(spend)
+        bits = []
+        if trip.get("days"):
+            bits.append(f"这一趟第 {int(trip['days'])} 天")
+        if trip.get("visited"):
+            bits.append(f"去过 {int(trip['visited'])} 个地方")
+        if bits:
+            lines.append("，".join(bits))
+
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _spend_line(trip: dict[str, Any]) -> str:
+        """账目单独一行：记账关着时说清楚为什么没有数字，而不是静默省略。"""
+        if not trip:
+            return ""
+        if not trip.get("moneyOn"):
+            return "记账没开：想看花费，在插件配置里打开 money_enabled，并按需填 budget。"
+        spent = int(trip.get("spent") or 0)
+        budget = int(trip.get("budget") or 0)
+        if budget > 0:
+            left = budget - spent
+            tail = f"还剩 {left} 元" if left >= 0 else f"已经超了 {-left} 元"
+            return f"这一趟花了 {spent} 元 / 预算 {budget} 元，{tail}"
+        return f"这一趟花了 {spent} 元（没设预算上限）"
 
     @filter.command("journey_depart", alias={"让她出发"})
     async def journey_depart(self, event: AstrMessageEvent):
