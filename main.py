@@ -414,14 +414,17 @@ class WorldJourneyPlugin(Star):
             raise RuntimeError("AstrBot 没有可用的 LLM provider")
         system_prompt = await self.bridge.prompt()
         instruction = self._diary_instruction(snap)
-        response = await provider.text_chat(
-            prompt=instruction,
-            system_prompt=(
-                f"{system_prompt}\n\n"
-                "现在只输出这篇日记的正文：不要标题、不要日期、不要 Markdown、"
-                "不要列表、不要工具调用或任何解释。"
+        response = await asyncio.wait_for(
+            provider.text_chat(
+                prompt=instruction,
+                system_prompt=(
+                    f"{system_prompt}\n\n"
+                    "现在只输出这篇日记的正文：不要标题、不要日期、不要 Markdown、"
+                    "不要列表、不要工具调用或任何解释。"
+                ),
+                session_id=f"world_journey_diary_{date_key}",
             ),
-            session_id=f"world_journey_diary_{date_key}",
+            timeout=180,
         )
         body = self._clean_diary_body(str(getattr(response, "completion_text", "") or ""))
         if not body:
