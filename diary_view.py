@@ -97,9 +97,11 @@ def read_diary_entries(directories: list[Path]) -> list[DiaryEntry]:
 def plain_text(text: str) -> str:
     """把可能带 Markdown 的正文压成纯文本，命令行输出不出现 MD 记号。"""
     text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.M)
+    text = re.sub(r"^\s*>\s?", "", text, flags=re.M)
     text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.M)
     text = re.sub(r"^\s*---+\s*$", "", text, flags=re.M)
-    text = text.replace("**", "").replace("__", "").replace("`", "")
+    text = text.replace("**", "").replace("__", "").replace("~~", "").replace("`", "")
+    text = re.sub(r"(?<!\*)\*(?!\*)", "", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
