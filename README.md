@@ -4,10 +4,11 @@
 
 - 发布仓库：<https://github.com/Yutousama/astrbot_plugin_world_journey_release>
 - 开发仓库：<https://github.com/Yutousama/astrbot_plugin_world_journey>
+- 插件作者：**yutou**
 - 版本：**v1.0.0**
 
 旅行引擎来自上游 [`coopani-world-journey`](https://www.npmjs.com/package/coopani-world-journey)
-（作者 Mr.Q，MIT），感谢原项目；本插件只做 AstrBot 接入，上游源码可在插件内从 npm 更新
+（原作者 Mr.Q，MIT），感谢原项目；本插件只做 AstrBot 接入，上游源码可在插件内从 npm 更新
 （`/journey_update`），不需要重装插件。
 
 本仓库根目录就是插件根目录，已经包含运行所需的 `engine/` 和 `raw/`，安装时不需要再构建。
