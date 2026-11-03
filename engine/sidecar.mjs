@@ -1450,6 +1450,17 @@ async function handle(req, res, opts) {
     json(res, result.ok ? 200 : 409, result);
     return;
   }
+  if (method === "POST" && path === "/api/report-image") {
+    const raw = await readJsonBody(req);
+    const body = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const scene = typeof body.text === "string" ? body.text : "";
+    const bytes = await opts.bridge.reportImage(scene);
+    json(res, 200, {
+      ok: Boolean(bytes),
+      image: bytes ? Buffer.from(bytes).toString("base64") : null
+    });
+    return;
+  }
   if (method === "POST" && path === "/api/heartbeat") {
     opts.touchHeartbeat?.();
     json(res, 200, { ok: true });

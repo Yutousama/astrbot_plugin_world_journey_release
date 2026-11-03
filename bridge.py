@@ -11,6 +11,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import contextlib
 import json
 import os
@@ -469,6 +471,32 @@ class SidecarBridge:
             raise BridgeError("连不上 sidecar（可能正在重启）；等几秒再试") from exc
         except asyncio.TimeoutError as exc:
             raise BridgeError("等图超过 150s；接口可能还在生成，稍后看相册") from exc
+
+    async def reportImage(self, text: str) -> bytes | None:
+        """主动汇报配图：让 sidecar 用自拍配置生成一张图；失败返回 None（只发文字）。
+
+        不走上游的 `journey.photo` 事件，也不动相册；超时和 `/api/photo` 一样放宽。
+        """
+        try:
+            data = await self._request(
+                "POST",
+                "/api/report-image",
+                body={"text": text},
+                timeout=150,
+            )
+        except aiohttp.ServerDisconnectedError as exc:
+            raise BridgeError("sidecar 连接被关闭（通常是插件正在重载/重启）；等几秒再试") from exc
+        except aiohttp.ClientConnectorError as exc:
+            raise BridgeError("连不上 sidecar（可能正在重启）；等几秒再试") from exc
+        except asyncio.TimeoutError as exc:
+            raise BridgeError("等配图超过 150s；接口可能还在生成，稍后再试") from exc
+        image = data.get("image") if isinstance(data, dict) else None
+        if not isinstance(image, str) or not image:
+            return None
+        try:
+            return base64.b64decode(image)
+        except (ValueError, binascii.Error) as exc:
+            raise BridgeError("汇报配图返回的 base64 解不开") from exc
 
     async def events(self, after: int, limit: int = 50) -> dict[str, Any]:
         return await self._request("GET", f"/api/events?after={int(after)}&limit={int(limit)}")
