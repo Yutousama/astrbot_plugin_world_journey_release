@@ -54,9 +54,10 @@ astrbot_plugin_world_journey/
 
 | 命令 | 说明 |
 |---|---|
-| `/journey` `/旅行` `/她在哪` `/今日计划` `/行程` | 她此刻在哪、今天剩下怎么过、今晚住哪、这一趟花了多少 |
+| `/journey` `/旅行` `/她在哪` `/今日计划` `/行程` | 她此刻在哪、今天剩下怎么过、今晚住哪、这一趟花了多少；末尾带日记天数和今天是否已写 |
 | `/journey_depart` `/让她出发` | 手动让她出发（默认需要管理员） |
 | `/journey_photo` `/旅行照片` | 开始拍一张；出图后自动发，不阻塞命令 |
+| `/journey_note [all\|N]` `/旅行笔记` | 读全部 / 最近 N 篇日记（默认 1），最新在前，并显示总篇数 |
 | `/journey_diary [7\|2026-11\|2026-11-02]` | 读最近几天 / 某个月目录 / 某一天全文 |
 | `/journey_stats` `/旅行统计` | 走了多少天、去过多少城、日记在哪 |
 | `/journey_draw 成都 一首歌` | 记下想去的地方 |
@@ -154,6 +155,28 @@ astrbot_plugin_world_journey/
 - 开启后没有参考图，照片会失败，**不会退回空镜**。
 - 自动拍照和 `/journey_photo` 都走这套；失败只写日志/回命令，不阻塞旅行。
 
+## 日记
+
+上游的日记是**文件记忆**，不是单独的页面：一个月一个 Markdown 文件，每天一段
+frontmatter + 正文。插件侧有两条读法：
+
+- `/journey_note [all|N]`：直接读日记文件，**最新的一篇在前**，默认 `N=1`；
+  输出第一行是「一共有多少篇日记可读」，正文按纯文本输出，不用 Markdown 分隔线。
+- `/journey_diary [7|2026-11|2026-11-02]`：走上游的 `journey_diary_read`，
+  看最近几天、某个月目录或某一天全文。
+
+### 自动写日记
+
+`diary_write_time` 控制自动写，默认 **`23:00`**，按**她所在城市的当地时间**算（不是服务器时间）。
+到点后如果当天还没写，插件会用当前 AstrBot LLM provider 生成一篇第一人称日记，再通过
+`journey_diary_write` 落盘。
+
+- 一天只自动写一次；如果当天已经有日记（手动写过也算），不会覆盖。
+- 生成失败/写入失败会隔 10 分钟重试；留空 `diary_write_time` 可关闭自动写。
+- 只会写「当天」：如果到点时插件不在线，错过就等第二天，不做补写。
+- 自动日记的正文要求不带标题、日期、Markdown 和列表；`/journey_note` 输出前还会再清一遍。
+- 写完后不会主动发消息；`/journey` 末尾会显示「日记 N 天，今天已经写了/还没写」。
+
 ## 工具
 
 LLM 工具由引擎自动注册（0.5.25 是 6 个，0.5.16 是 5 个，以实际 `tools()` 为准）：
@@ -249,6 +272,7 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | 项 | 默认 | 说明 |
 |---|---|---|
 | `node_path` | 空 | Node 22.7+ 路径 |
+| `diary_write_time` | `23:00` | 她当地时间自动写日记；`HH:MM`，留空关闭 |
 | `inject_prompt` | 开 | 注入旅行状态 |
 | `inject_recent_reports` | 开 | 把最近汇报注入汇报会话 |
 | `recent_report_count` | 5 | 保留几条汇报 |
@@ -302,11 +326,12 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 - `engine/photos.json` + `engine/media/`：照片
 - `engine/events.jsonl`：事件流
 - `engine-config.json`：配置映射
-- `plugin_state.json`：last_seq / last_umo
+- `plugin_state.json`：last_seq / last_umo / 自动日记写到哪一天
 - `upstream-state.json`：见过的上游源码版本（重装插件被换回基线时用来提示）
 - `logs/sidecar.log`：sidecar 日志
 
 `memory_dir` 留空时日记和旅行记忆在 `engine/diary`；填同步盘则跟人走。
+`/journey_note` / `/journey` 读日记时会同时看同步盘和本机兜底目录，同一天取文件更新的那份。
 
 从旧版迁移：把旧数据目录的 `state.json`、`diary/`、`photos.json`、`media/` 复制进 `engine/`。
 上游会把旧的一天一篇日记自动并进月文件，旧文件挪进 `_bak/legacy/`，不删。

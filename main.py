@@ -7,15 +7,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import json
 import os
 import random
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
@@ -35,6 +38,7 @@ from .access import access_allowed
 from .bridge import BridgeError, RAW_DIR, SidecarBridge, UPDATER
 from .config_map import write_engine_config
 from .defaults import DEFAULT_SELFIE_PROMPT
+from .diary_view import clock_minutes, parse_write_time, plain_text, read_diary_entries
 from .event_pump import EventPump
 from .reset import clear_memory_dir
 from .upstream_version import downgrade_hint, newest_version, read_pkg_version
@@ -64,6 +68,9 @@ class WorldJourneyPlugin(Star):
         self._tools: list[FunctionTool] = []
         self._ready_lock = asyncio.Lock()
         self._photo_task: asyncio.Task[None] | None = None
+        self._diary_task: asyncio.Task[None] | None = None
+        self._diary_lock = asyncio.Lock()
+        self._diary_next_attempt = 0.0
         self._recent_reports: list[str] = []
         self._report_target = ""
         # 上游源码被装回旧版时的提示（/journey_debug 里也显示）。
@@ -108,6 +115,7 @@ class WorldJourneyPlugin(Star):
             logger.error("[world-journey] sidecar 启动失败：%s", exc)
             return
         self._start_pump()
+        self._start_diary_task()
         self._check_upstream_versions()
         try:
             health = await self.bridge.health()
@@ -119,6 +127,7 @@ class WorldJourneyPlugin(Star):
             logger.info("[world-journey] 就绪。")
 
     async def terminate(self) -> None:
+        await self._stop_diary_task()
         await self._cancel_photo_task()
         if self.pump is not None:
             await self.pump.stop()
@@ -304,6 +313,254 @@ class WorldJourneyPlugin(Star):
             logger.warning("[world-journey] 汇报配图异常：%s", exc)
             return None
 
+    # ---------------- 自动日记 ----------------
+    def _diary_dirs(self, snap: dict[str, Any] | None = None) -> list[Path]:
+        """读日记的目录：本机兜底 + raw 当前实际写入的目录（去重）。"""
+        dirs: list[Path] = []
+
+        def add(path: Path | None) -> None:
+            if path is None:
+                return
+            try:
+                resolved = path.expanduser().resolve()
+            except (OSError, RuntimeError):
+                resolved = path
+            if resolved not in dirs:
+                dirs.append(resolved)
+
+        add(self.engine_dir / "diary")
+        value = ""
+        if snap:
+            diary = snap.get("diary") if isinstance(snap.get("diary"), dict) else {}
+            value = str(diary.get("dir") or "").strip()
+        if not value:
+            effective = self._effective_memory_dir()
+            if effective is not None:
+                value = str(effective)
+        if value:
+            path = Path(value)
+            if not path.is_absolute():
+                path = self.plugin_dir / path
+            add(path)
+        return dirs
+
+    def _diary_write_time(self) -> tuple[int, int] | None:
+        """她当地时间的写日记时刻；留空或格式不对 = 关闭。"""
+        return parse_write_time(str(self.cfg.get("diary_write_time") or ""))
+
+    def _start_diary_task(self) -> None:
+        target = self._diary_write_time()
+        if target is not None:
+            logger.info("[world-journey] 自动写日记已启用：她当地 %02d:%02d。", target[0], target[1])
+        if self._diary_task is None or self._diary_task.done():
+            self._diary_task = asyncio.create_task(self._diary_loop())
+
+    async def _stop_diary_task(self) -> None:
+        task = self._diary_task
+        self._diary_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    async def _diary_loop(self) -> None:
+        while True:
+            try:
+                await self._maybe_auto_diary()
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                logger.warning("[world-journey] 自动日记巡检失败：%s", exc)
+            await asyncio.sleep(30)
+
+    async def _maybe_auto_diary(self) -> None:
+        """到她当地的目标时刻后，若当天还没写，就生成并写一篇。"""
+        target = self._diary_write_time()
+        if target is None:
+            return
+        if time.monotonic() < self._diary_next_attempt:
+            return
+        async with self._diary_lock:
+            if time.monotonic() < self._diary_next_attempt:
+                return
+            try:
+                snap = await self.bridge.status()
+            except Exception as exc:
+                self._diary_next_attempt = time.monotonic() + 300
+                logger.debug("[world-journey] 自动日记：暂时读不到她的时钟（%s）", exc)
+                return
+            date_key = str(snap.get("dateKey") or "").strip()
+            clock = str(snap.get("clock") or "").strip()
+            minutes = clock_minutes(clock)
+            if not date_key or minutes is None:
+                return
+            if minutes < target[0] * 60 + target[1]:
+                return
+            if str(self.state.get("diary_written_date") or "") == date_key:
+                return
+            if any(entry.date_key == date_key for entry in read_diary_entries(self._diary_dirs(snap))):
+                self.state["diary_written_date"] = date_key
+                self._save_state()
+                return
+            try:
+                await self._write_auto_diary(snap, date_key)
+            except Exception as exc:
+                self._diary_next_attempt = time.monotonic() + 600
+                logger.warning("[world-journey] 自动日记失败：%s（10 分钟后重试）", exc)
+
+    async def _write_auto_diary(self, snap: dict[str, Any], date_key: str) -> None:
+        provider = await self._get_provider()
+        if provider is None:
+            raise RuntimeError("AstrBot 没有可用的 LLM provider")
+        system_prompt = await self.bridge.prompt()
+        instruction = self._diary_instruction(snap)
+        response = await provider.text_chat(
+            prompt=instruction,
+            system_prompt=(
+                f"{system_prompt}\n\n"
+                "现在只输出这篇日记的正文：不要标题、不要日期、不要 Markdown、"
+                "不要列表、不要工具调用或任何解释。"
+            ),
+            session_id=f"world_journey_diary_{date_key}",
+        )
+        body = self._clean_diary_body(str(getattr(response, "completion_text", "") or ""))
+        if not body:
+            raise RuntimeError("模型返回了空日记")
+        # 生成要几十秒，期间用户可能手动写了：再确认一次，别覆盖。
+        if any(entry.date_key == date_key for entry in read_diary_entries(self._diary_dirs(snap))):
+            self.state["diary_written_date"] = date_key
+            self._save_state()
+            return
+        result = await self.bridge.call_tool(
+            "journey_diary_write",
+            {"body": body, "dateKey": date_key},
+        )
+        message = str(result.get("text") or "")
+        if result.get("isError") and "只存到本机" not in message:
+            raise RuntimeError(message or "日记写入失败")
+        if result.get("isError"):
+            # 同步盘写不进去但本机兜底成功了：算写成功，只在日志里说一声。
+            logger.warning("[world-journey] 自动日记写入回落：%s", message)
+        self.state["diary_written_date"] = date_key
+        self._save_state()
+        self._diary_next_attempt = 0.0
+        logger.info("[world-journey] 自动日记已写：%s（%d 字）", date_key, len(body))
+
+    def _diary_instruction(self, snap: dict[str, Any]) -> str:
+        lines = [
+            f"现在是当地 {snap.get('dateKey')} {snap.get('clock')}，一天结束了。",
+            "用第一人称写今天的旅行日记，2 到 3 段。",
+            "只写今天真实发生的事：去了哪儿、看到什么、吃了什么、住哪儿、身体什么感觉。",
+            "不要写成攻略，不要总结这个扩展；不要标题、日期、Markdown、列表。",
+            "直接给正文。",
+            "",
+            self._diary_context(snap),
+        ]
+        return "\n".join(line for line in lines if line is not None).strip()
+
+    def _diary_context(self, snap: dict[str, Any]) -> str:
+        lines: list[str] = []
+        place = snap.get("place") or {}
+        if isinstance(place, dict) and place.get("name"):
+            lines.append(f"所在城市：{place['name']}")
+        lodging = snap.get("lodging") or {}
+        if isinstance(lodging, dict) and lodging.get("name"):
+            kind = str(lodging.get("kind") or "").strip()
+            lines.append(f"今晚住处：{lodging['name']}{f'（{kind}）' if kind else ''}")
+        trip = snap.get("trip") or {}
+        if isinstance(trip, dict):
+            if trip.get("days"):
+                lines.append(f"这一趟第 {int(trip['days'])} 天")
+            if trip.get("visited"):
+                lines.append(f"这一趟去过 {int(trip['visited'])} 个地方")
+        events = self._today_events(snap)
+        if events:
+            lines.append("今天发生的事：")
+            lines.extend(events)
+        return "\n".join(lines)
+
+    def _today_events(self, snap: dict[str, Any]) -> list[str]:
+        """从事件日志里取她当地「今天」的事，给自动日记当事实依据。"""
+        path = self.engine_dir / "events.jsonl"
+        try:
+            raw_lines = path.read_text(encoding="utf-8").splitlines()[-600:]
+        except OSError:
+            return []
+        events: list[dict[str, Any]] = []
+        for line in raw_lines:
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict) and item.get("text"):
+                events.append(item)
+        if not events:
+            return []
+
+        today = str(snap.get("dateKey") or "").strip()
+        start_seq = 0
+        if today:
+            for item in events:
+                if item.get("type") == "journey.day" and today in str(item.get("text") or ""):
+                    start_seq = int(item.get("seq") or 0)
+        selected: list[dict[str, Any]]
+        if start_seq:
+            selected = [item for item in events if int(item.get("seq") or 0) >= start_seq]
+        else:
+            zone = self._diary_zone(snap)
+            selected = []
+            for item in events:
+                try:
+                    stamp = datetime.fromisoformat(str(item.get("ts") or "").replace("Z", "+00:00"))
+                    local = stamp.astimezone(zone)
+                except (TypeError, ValueError, OSError):
+                    continue
+                if local.date().isoformat() == today:
+                    selected.append(item)
+        if not selected:
+            selected = events[-12:]
+
+        out: list[str] = []
+        for item in selected[-40:]:
+            text = " ".join(str(item.get("text") or "").split())
+            if text:
+                out.append(text[:300])
+        return out
+
+    @staticmethod
+    def _diary_zone(snap: dict[str, Any]) -> ZoneInfo:
+        place = snap.get("place") or {}
+        name = str(place.get("tz") or "").strip() if isinstance(place, dict) else ""
+        try:
+            return ZoneInfo(name) if name else ZoneInfo("UTC")
+        except Exception:
+            return ZoneInfo("UTC")
+
+    @staticmethod
+    def _clean_diary_body(text: str) -> str:
+        body = plain_text(text)
+        body = re.sub(r"^```[\w-]*\s*", "", body)
+        body = re.sub(r"\s*```$", "", body)
+        body = re.sub(r"^(旅行)?日记(正文)?[:：]\s*", "", body)
+        body = body.strip()
+        if len(body) > 4000:
+            body = body[:4000].rstrip() + "…"
+        return body
+
+    async def _get_provider(self):
+        getter = getattr(self.context, "get_using_provider_async", None)
+        if callable(getter):
+            provider = getter()
+        else:
+            getter = getattr(self.context, "get_using_provider", None)
+            if not callable(getter):
+                return None
+            provider = getter()
+        if inspect.isawaitable(provider):
+            provider = await provider
+        return provider
+
+
     async def _deliver(self, target: str, text: str, photo_bytes: bytes | None) -> None:
         sent = False
         for chunk in self._split_text(text):
@@ -355,11 +612,19 @@ class WorldJourneyPlugin(Star):
             yield event.plain_result(f"旅行引擎没启动：{exc}")
             return
         self._note_umo(event)
-        for chunk in self._split_text(self._render_journey(now_text, snap)):
+        entries = read_diary_entries(self._diary_dirs(snap))
+        today = str(snap.get("dateKey") or "")
+        today_written = any(entry.date_key == today for entry in entries)
+        diary_days = len(entries)
+        if diary_days == 0:
+            # 文件暂时读不到时，至少用上游统计里的天数兜底。
+            diary = snap.get("diary") if isinstance(snap.get("diary"), dict) else {}
+            diary_days = int(diary.get("days") or 0)
+        for chunk in self._split_text(self._render_journey(now_text, snap, diary_days, today_written)):
             yield event.plain_result(chunk)
 
     @staticmethod
-    def _render_journey(now_text: str, snap: dict[str, Any]) -> str:
+    def _render_journey(now_text: str, snap: dict[str, Any], diary_days: int, today_written: bool) -> str:
         """`/journey` 的正文：上游那段「此刻」，加上计划与账目。
 
         **只补 now 里没有的。** 上游的「此刻」已经说了今晚住什么档次、下一个点是什么，
@@ -410,6 +675,7 @@ class WorldJourneyPlugin(Star):
             bits.append(f"去过 {int(trip['visited'])} 个地方")
         if bits:
             lines.append("，".join(bits))
+        lines.append(f"日记 {diary_days} 天，今天{'已经写了' if today_written else '还没写'}。")
 
         return "\n".join(lines).strip()
 
@@ -532,6 +798,44 @@ class WorldJourneyPlugin(Star):
             return
         text = str(result.get("text") or "日记还是空的。")
         for chunk in self._split_text(text):
+            yield event.plain_result(chunk)
+
+    @filter.command("journey_note", alias={"旅行笔记"})
+    async def journey_note(self, event: AstrMessageEvent):
+        """读全部或最近 N 篇日记：/journey_note all、/journey_note 3；默认 1。"""
+        if not self._access_ok(event):
+            self._deny_access(event)
+            return
+        try:
+            await self._ensure_ready()
+            snap = await self.bridge.status()
+        except Exception as exc:
+            # 引擎没起来也尽量把已经落盘的日记读出来。
+            logger.warning("[world-journey] 读日记时引擎不可用：%s", exc)
+            snap = {}
+        arg = self._command_arg(event).strip().lower()
+        if arg in {"", "1"}:
+            limit: int | None = 1
+        elif arg in {"all", "全部"}:
+            limit = None
+        elif arg.isdigit():
+            limit = max(1, int(arg))
+        else:
+            yield event.plain_result("用法：/journey_note all 或 /journey_note N（默认 1）")
+            return
+
+        entries = read_diary_entries(self._diary_dirs(snap))
+        total = len(entries)
+        selected = entries if limit is None else entries[:limit]
+        lines = [f"一共有 {total} 篇日记可读。"]
+        if not selected:
+            lines.append("还没有日记。")
+        else:
+            for entry in selected:
+                body = plain_text(entry.body) or "（这篇没有正文）"
+                lines.append(f"{entry.date_key} · {entry.city}\n{body}")
+        self._note_umo(event)
+        for chunk in self._split_text("\n\n".join(lines)):
             yield event.plain_result(chunk)
 
     @filter.command("journey_stats", alias={"旅行统计"})
@@ -779,6 +1083,7 @@ class WorldJourneyPlugin(Star):
     # ---------------- 重置旅行 ----------------
     async def _reset_journey(self) -> None:
         memory_dir = self._effective_memory_dir()
+        await self._stop_diary_task()
         await self._cancel_photo_task()
         if self.pump is not None:
             await self.pump.stop()
@@ -795,6 +1100,8 @@ class WorldJourneyPlugin(Star):
         # 保留 last_umo（主动消息还发同一个会话），只重置事件游标。
         self.state["last_seq"] = 0
         self.state["event_log_id"] = ""
+        self.state.pop("diary_written_date", None)
+        self._diary_next_attempt = 0.0
         self._recent_reports = []
         self._report_target = ""
         self._save_state()
@@ -804,6 +1111,7 @@ class WorldJourneyPlugin(Star):
         await self.bridge.start()
         await self._register_tools()
         self._start_pump()
+        self._start_diary_task()
 
     def _effective_memory_dir(self) -> Path | None:
         raw = ""

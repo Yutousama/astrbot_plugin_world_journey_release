@@ -90,6 +90,12 @@
     "default": "",
     "hint": "留空跟插件数据目录；填同步盘则日记和旅行记忆跟着人走。state.json 永远只在本机。"
   },
+  "diary_write_time": {
+    "description": "自动写日记时间",
+    "type": "string",
+    "default": "23:00",
+    "hint": "她当地时间的 HH:MM（24 小时制）。到点当天还没写，就让她写一篇；留空关闭自动写。"
+  },
   "amap_key": {
     "description": "高德密钥",
     "type": "string",
