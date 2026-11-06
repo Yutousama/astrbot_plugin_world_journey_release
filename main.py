@@ -778,6 +778,9 @@ class WorldJourneyPlugin(Star):
         "stats": "journey_stats",
         "draw": "journey_draw",
         "depart": "journey_depart",
+        "yes": "journey_yes",
+        "no": "journey_no",
+        "back": "journey_back",
         "photo": "journey_photo",
         "sync": "journey_sync",
         "debug": "journey_debug",
@@ -825,7 +828,10 @@ class WorldJourneyPlugin(Star):
             "　她此刻在哪、那边几点、今天剩下怎么过、今晚住哪、这一趟花了多少",
             "/journey help（或 /jy help）　本指令列表",
             "/journey_depart（别名 /让她出发；/jy depart）　手动让她出发 [管理员]",
-            "/journey_photo（别名 /旅行照片；/jy photo）　现在拍一张，出图后自动发",
+            "/journey_yes（别名 /点头；/jy yes）　答应她正在等的那张卡片（出门/接邀约）[管理员]",
+            "/journey_no（别名 /摇头；/jy no）　这次先不 [管理员]",
+            "/journey_back（别名 /叫她回来；/jy back）　这一趟不等了，让她回家 [管理员]",
+            "/journey_photo [题材]（别名 /旅行照片；/jy photo …）　现在拍一张，出图后自动发；题材如 晚饭/街景/星空/节日/特写",
             "/journey_diary [7|2026-11|2026-11-02]（/jy diary …）　读最近几天 / 某个月 / 某一天日记",
             "/journey_note [all|N]（别名 /旅行笔记；/jy note …）　读全部或最近 N 篇日记（默认 1）",
             "/journey_stats（别名 /旅行统计；/jy stats）　走了多少天、去过多少城、日记存在哪",
@@ -833,7 +839,7 @@ class WorldJourneyPlugin(Star):
             "/journey_sync（/jy sync）　把她的钟拉回真实时间",
             "/journey_debug（/jy debug）　诊断：版本、sidecar、数据目录 [管理员]",
             "/journey_reset confirm（/jy reset confirm）　重置旅行数据 [管理员]",
-            "/journey_update [latest|版本]（/jy update …）　从 npm 更新上游源码，成功附更新日志 [管理员，需在配置打开 allow_upstream_update]",
+            "/journey_update [latest|版本]（/jy update …）　从 npm 更新上游源码 [管理员，需在配置打开 allow_upstream_update；更新日志默认不输出，由 update_show_changelog 控制]",
             "",
             "[管理员] 的命令默认只限管理员（admin_only_controls 可关）；",
             "控制范围 access_scope=target 时，只有「主动消息发给谁」的会话能用以上指令。",
@@ -856,27 +862,137 @@ class WorldJourneyPlugin(Star):
             return
         yield event.plain_result(result.get("text") or result.get("reason") or "出发了。")
 
-    @filter.command("journey_photo", alias={"旅行照片"})
-    async def journey_photo(self, event: AstrMessageEvent):
-        """让她现在拍一张（需要控制权限）。"""
+    @filter.command("journey_yes", alias={"点头"})
+    async def journey_yes(self, event: AstrMessageEvent):
+        """答应她正在等的那张卡片：出门或接邀约（需要控制权限）。"""
+        async for out in self._answer_ask(event, True):
+            yield out
+
+    @filter.command("journey_no", alias={"摇头"})
+    async def journey_no(self, event: AstrMessageEvent):
+        """这次先不（需要控制权限）。"""
+        async for out in self._answer_ask(event, False):
+            yield out
+
+    async def _answer_ask(self, event: AstrMessageEvent, ok: bool):
+        """`journey_yes`/`journey_no` 的共同实现：面板那两个按钮在聊天里的替身。"""
         if not self._access_ok(event):
             self._deny_access(event)
             return
         if not self._can_control(event):
             yield event.plain_result("这个操作需要管理员；可以在插件配置里关掉 admin_only_controls。")
             return
+        try:
+            await self._ensure_ready()
+            result = await self.bridge.ask(ok)
+        except Exception as exc:
+            yield event.plain_result(f"没答上：{exc}")
+            return
+        yield event.plain_result(
+            str(result.get("text") or result.get("reason")
+                or ("他点了头。" if ok else "他答了「先不」。"))
+        )
+
+    @filter.command("journey_back", alias={"叫她回来"})
+    async def journey_back(self, event: AstrMessageEvent):
+        """不等了，让她结束这一趟回家（需要控制权限）。"""
+        if not self._access_ok(event):
+            self._deny_access(event)
+            return
+        if not self._can_control(event):
+            yield event.plain_result("这个操作需要管理员；可以在插件配置里关掉 admin_only_controls。")
+            return
+        try:
+            await self._ensure_ready()
+            result = await self.bridge.return_home()
+        except Exception as exc:
+            yield event.plain_result(f"没叫回来：{exc}")
+            return
+        yield event.plain_result(str(result.get("text") or result.get("reason") or "叫她回来了。"))
+
+    # 上游 0.8.5 的六档拍照题材（subject）。顺序即优先级：越具体越靠前 ——
+    # 「菜单」含「菜」、必须先归 detail，不能被 food 抢走；「地面」的「面」同理。
+    _PHOTO_SUBJECTS: tuple[tuple[str, str], ...] = (
+        ("菜单", "detail"), ("车票", "detail"), ("钥匙", "detail"), ("茶碗", "detail"),
+        ("茶盏", "detail"), ("特写", "detail"), ("细节", "detail"), ("近景", "detail"),
+        ("星空", "sky"), ("天空", "sky"), ("星星", "sky"), ("月亮", "sky"), ("日出", "sky"),
+        ("日落", "sky"), ("晚霞", "sky"), ("朝霞", "sky"), ("云海", "sky"), ("云层", "sky"),
+        ("看云", "sky"), ("sky", "sky"),
+        ("过年", "festival"), ("春节", "festival"), ("中秋", "festival"), ("端午", "festival"),
+        ("清明", "festival"), ("圣诞", "festival"), ("元旦", "festival"), ("灯会", "festival"),
+        ("节日", "festival"), ("季节", "festival"), ("秋天", "festival"), ("冬天", "festival"),
+        ("春天", "festival"), ("夏天", "festival"), ("下雪", "festival"), ("雪景", "festival"),
+        ("festival", "festival"),
+        ("街景", "street"), ("这条街", "street"), ("街上", "street"), ("夜市", "street"),
+        ("巷子", "street"), ("招牌", "street"), ("店铺", "street"), ("立面", "street"),
+        ("street", "street"),
+        ("地面", "ground"), ("脚下", "ground"), ("这片", "ground"), ("风景", "ground"),
+        ("ground", "ground"),
+        ("晚饭", "food"), ("早饭", "food"), ("午饭", "food"), ("夜宵", "food"),
+        ("美食", "food"), ("小吃", "food"), ("吃的", "food"), ("这碗", "food"),
+        ("菜", "food"), ("饭", "food"), ("面", "food"), ("餐", "food"), ("food", "food"),
+    )
+
+    @classmethod
+    def _photo_subject(cls, arg: str) -> str | None:
+        text = arg.strip().lower()
+        if not text:
+            return None
+        for word, subject in cls._PHOTO_SUBJECTS:
+            if word in text:
+                return subject
+        return ""  # 空串 = 没认出来；None 是没传参数，两者行为不同
+
+    @filter.command("journey_photo", alias={"旅行照片"})
+    async def journey_photo(self, event: AstrMessageEvent):
+        """让她现在拍一张；可带题材（晚饭/街景/星空/节日/特写）。需要控制权限。"""
+        if not self._access_ok(event):
+            self._deny_access(event)
+            return
+        if not self._can_control(event):
+            yield event.plain_result("这个操作需要管理员；可以在插件配置里关掉 admin_only_controls。")
+            return
+        arg = self._command_arg(event).strip()
+        tool_args: dict[str, str] | None = None
+        if arg:
+            subject = self._photo_subject(arg)
+            if not subject:
+                yield event.plain_result(
+                    f"认不出「{arg}」是哪种题材。可以试：/journey_photo 晚饭（吃的）、"
+                    "街景、星空 / 日出、节日 / 雪景、特写 / 车票，或不带参数拍脚下。"
+                )
+                return
+            tool_args = {"subject": subject}
         if self._photo_task is not None and not self._photo_task.done():
             yield event.plain_result("上一张还在拍，等出图或超时后再试。")
             return
         self._note_umo(event)
         umo = str(getattr(event, "unified_msg_origin", "") or "").strip()
-        self._photo_task = asyncio.create_task(self._photo_background(umo))
+        self._photo_task = asyncio.create_task(self._photo_background(umo, tool_args))
         yield event.plain_result("开始拍了；出图后自动发过来，不用再发 /journey_photo。")
 
-    async def _photo_background(self, umo: str) -> None:
+    async def _photo_background(self, umo: str, tool_args: dict[str, str] | None = None) -> None:
         try:
             await self._ensure_ready()
-            result = await self.bridge.photo()
+            if tool_args is None:
+                result = await self.bridge.photo()
+            else:
+                # 带题材只能走 `journey_photo` 工具（面板那颗「补一张」按钮不分题材）。
+                # 工具内部同样等出图完成才返回，所以后面的取图/发图和按钮路径一致。
+                tool = await self.bridge.call_tool(
+                    "journey_photo", tool_args, timeout=self.bridge.photo_timeout
+                )
+                if tool.get("isError"):
+                    await self._send_plain(umo, f"没拍成：{tool.get('text') or '工具报错'}")
+                    return
+                snap = await self.bridge.status()
+                photos = snap.get("photos") if isinstance(snap.get("photos"), list) else []
+                first = photos[0] if photos and isinstance(photos[0], dict) else None
+                result = {
+                    "ok": True,
+                    "text": str(tool.get("text") or "拍了一张。"),
+                    "photo": first,
+                }
             if not result.get("ok"):
                 await self._send_plain(umo, f"没拍成：{result.get('reason') or '没拍成。'}")
                 return
@@ -1131,9 +1247,10 @@ class WorldJourneyPlugin(Star):
         if result.get("upToDate"):
             yield event.plain_result(f"已经是最新：{result.get('version')}，没有重启。")
             return
+        show_changelog = bool(self.cfg.get("update_show_changelog", False))
         note = self._changelog_slice(
             str(result.get("oldVersion") or ""), str(result.get("version") or "")
-        )
+        ) if show_changelog else ""
         head = (
             f"已更新到上游 {result.get('version')}（旧版 {result.get('oldVersion') or '无'}），"
             "工具已重新注册。"
@@ -1142,6 +1259,10 @@ class WorldJourneyPlugin(Star):
             old_v = str(result.get("oldVersion") or "")
             span = f"{old_v} → {result.get('version')}" if old_v and old_v != "无" else str(result.get("version"))
             head += f"\n\n更新内容（{span}）：\n{note}"
+        elif show_changelog:
+            head += "\n（新版 raw/CHANGELOG.md 里没有这一段（未收录或读不到），全文见 raw/CHANGELOG.md。）"
+        else:
+            head += "\n（默认不附更新日志；想看在插件配置里打开 update_show_changelog。）"
         for chunk in self._split_text(head):
             yield event.plain_result(chunk)
 

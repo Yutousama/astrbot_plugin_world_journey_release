@@ -31,6 +31,12 @@
     "type": "string",
     "default": "https://www.npmjs.com/package/coopani-world-journey"
   },
+  "update_show_changelog": {
+    "description": "更新成功时附上更新日志",
+    "type": "bool",
+    "default": false,
+    "hint": "打开后 /journey_update 成功时从新版 raw/CHANGELOG.md 截取「旧版 → 新版」的段落一起发出；关闭只报版本和结果。旧版没收录时只截新版一节，超长会截断。"
+  },
   "home_city": {
     "description": "从哪儿出发",
     "type": "string",
@@ -61,11 +67,11 @@
     "default": false,
     "hint": "打开后她不会自己走，需要 /journey_depart。"
   },
-  "max_trip_months": {
-    "description": "一次最多在外多久",
+  "max_trip_weeks": {
+    "description": "一次最多在外几周",
     "type": "int",
-    "default": 6,
-    "hint": "到点强制回家。"
+    "default": 26,
+    "hint": "到点强制回家。按周算：1 周 = 7 天，想试三五天的短途也配得上（旧版按月，配置会自动换算成周）。"
   },
   "with_user": {
     "description": "叙事上让你同行",
@@ -83,6 +89,18 @@
     "type": "int",
     "default": 0,
     "hint": "0 = 不限；只在记花销打开时有效。"
+  },
+  "has_license": {
+    "description": "她有驾照",
+    "type": "bool",
+    "default": true,
+    "hint": "关掉后她永远不自驾、不租车，城里城际都只坐公共交通。"
+  },
+  "meet_url": {
+    "description": "碰面服务器地址",
+    "type": "string",
+    "default": "",
+    "hint": "填了她在同城能看到别的桌宠（作者公共池：https://cooppetsjourney.top），到站会提一句这一带还有谁、可以约着一起走。留空＝照常旅行，只是永远一个人。可见的是宠物名/城市/时段，24 小时过期，只能看不能聊。"
   },
   "memory_dir": {
     "description": "日记/旅行记忆保存位置",
@@ -139,6 +157,75 @@
     "type": "string",
     "default": "",
     "hint": "对所有出图生效：相册照片、/journey_photo、主动汇报配图。留空真实旅行照片；none = 不指定风格。想固定二次元就填「动漫画风」。"
+  },
+  "image_protocol": {
+    "description": "生图接口类型",
+    "type": "string",
+    "default": "openai",
+    "options": [
+      "openai",
+      "comfyui"
+    ],
+    "hint": "openai = 云端服务商（填到 /v1 为止）；comfyui = 本地 ComfyUI（image_api 填 http://127.0.0.1:8188）。选错不会报错、只会一直拍不出来。comfyui 下自拍套壳不生效（除非单独配 selfie_api 指向云端）。"
+  },
+  "image_workflow": {
+    "description": "ComfyUI 工作流 JSON（仅 comfyui）",
+    "type": "text",
+    "default": "",
+    "hint": "在 ComfyUI 里「Save (API Format)」导出的那份，整段粘进来。协议选 comfyui 时必填；带 nodes/links 的界面格式提交不了。"
+  },
+  "image_prompt_node": {
+    "description": "ComfyUI 提示词节点 id（可留空）",
+    "type": "string",
+    "default": "",
+    "hint": "workflow 里写画面描述的节点编号（如 6）。留空自动从正向采样链上找；找不准会明确报错，不会把描述写进负向节点。"
+  },
+  "comfy_negative": {
+    "description": "负向提示词（仅 ComfyUI）",
+    "type": "string",
+    "default": "",
+    "hint": "不想画面出现什么就写什么，如「rapeseed flowers, snow」。云端接口没有这个参数，填了不起作用。留空什么都不加。"
+  },
+  "comfy_negative_node": {
+    "description": "负向提示词节点 id（可留空）",
+    "type": "string",
+    "default": "",
+    "hint": "留空自动找（看哪个 CLIPTextEncode 被采样器的 negative 指着）。自动找不准时把节点编号填这儿。"
+  },
+  "image_timeout_sec": {
+    "description": "出图最多等几秒",
+    "type": "int",
+    "default": 0,
+    "hint": "0 = 默认（本地 ComfyUI 180 秒、云端 90 秒）。大图、多步、刚加载完大模型时填 300 或 600 多等一会儿——超时只是还没画完，不是坏了。"
+  },
+  "image_cast": {
+    "description": "照片里出不出人",
+    "type": "string",
+    "default": "",
+    "hint": "留空＝画面里没有人（拍她眼前的景）。想让照片里有她就写一段外貌描述（发型、衣服），要长相稳定得靠 LoRA。与「生图必须含自拍」是两条路，别指望这段替代参考图。"
+  },
+  "image_size": {
+    "description": "出图尺寸",
+    "type": "string",
+    "default": "",
+    "hint": "宽x高，如 1664x928（横 16:9）、1152x1536（竖 3:4）。留空＝1024x1024 方形。ComfyUI 会自动吸附到 8 的倍数；云端填了不支持的值会被拒。"
+  },
+  "image_watermark": {
+    "description": "「AI生成」水印处理",
+    "type": "string",
+    "default": "auto",
+    "options": [
+      "auto",
+      "off",
+      "crop"
+    ],
+    "hint": "auto = 云端出的图裁掉底边一条、本地 ComfyUI 不动；off = 一律不裁；crop = 一律裁。裁的是底部 8%。"
+  },
+  "photo_dir": {
+    "description": "照片存放目录（可留空）",
+    "type": "string",
+    "default": "",
+    "hint": "留空＝插件数据目录。填绝对路径可和日记放同一个同步盘目录。"
   },
   "image_prompt_template": {
     "description": "生图提示词模板",

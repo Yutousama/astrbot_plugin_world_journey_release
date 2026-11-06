@@ -57,7 +57,10 @@ astrbot_plugin_world_journey/
 | `/journey` `/旅行` `/她在哪` `/今日计划` `/行程` `/jy` | 她此刻在哪、今天剩下怎么过、今晚住哪、这一趟花了多少；末尾带日记天数和今天是否已写 |
 | `/journey help` `/jy help` | 列出全部可用指令（别名 `/旅行 帮助` 等也可） |
 | `/journey_depart` `/让她出发` `/jy depart` | 手动让她出发（默认需要管理员） |
-| `/journey_photo` `/旅行照片` `/jy photo` | 开始拍一张；出图后自动发，不阻塞命令 |
+| `/journey_yes` `/点头` `/jy yes` | 答应她正在等的那张卡片：出门 / 接邀约（默认需要管理员） |
+| `/journey_no` `/摇头` `/jy no` | 这次先不（默认需要管理员） |
+| `/journey_back` `/叫她回来` `/jy back` | 这一趟不等了，让她回家（默认需要管理员） |
+| `/journey_photo [题材]` `/旅行照片` `/jy photo …` | 开始拍一张；出图后自动发，不阻塞命令。题材：`晚饭`（吃的）、`街景`、`星空`/`日出`、`节日`/`雪景`、`特写`/`车票`；不带参数拍脚下 |
 | `/journey_note [all\|N]` `/旅行笔记` `/jy note …` | 读全部 / 最近 N 篇日记（默认 1），最新在前，并显示总篇数 |
 | `/journey_diary [7\|2026-11\|2026-11-02]` `/jy diary …` | 读最近几天 / 某个月目录 / 某一天全文 |
 | `/journey_stats` `/旅行统计` `/jy stats` | 走了多少天、去过多少城、日记在哪 |
@@ -65,11 +68,16 @@ astrbot_plugin_world_journey/
 | `/journey_sync` `/jy sync` | 把她的钟拉回真实时间 |
 | `/journey_debug` `/jy debug` | 诊断：上游版本、sidecar、数据目录、最后 seq |
 | `/journey_reset confirm` `/jy reset confirm` | 重置旅行：清空行程、事件、照片、日记和旅行记忆（管理员） |
-| `/journey_update [latest\|0.5.25]` `/jy update …` | 从 npm 更新上游源码（管理员；失败自动回滚；成功输出旧版→新版的更新日志） |
+| `/journey_update [latest\|0.5.25]` `/jy update …` | 从 npm 更新上游源码（管理员；失败自动回滚；更新日志默认不输出，由 `update_show_changelog` 控制） |
 
 `/jy` 是通用简写：`/jy` 单独使用等同 `/journey`，`/jy <子命令> [参数]` 等同对应的
-`/journey_<子命令>`（diary / note / stats / draw / depart / photo / sync / debug / reset / update），
+`/journey_<子命令>`（diary / note / stats / draw / depart / yes / no / back / photo / sync / debug / reset / update），
 权限和参数行为与完整命令一致。
+
+**「出门等你点头」（`ask_before_depart`）在聊天里的用法**：开了之后她不会自己走；她会发一条
+`journey.ask` 事件问「能不能去××」（接别人的邀约也是这张卡片），事件末尾会带上回答方式。
+发 `/journey_yes` 点头（她立刻动身 / 应约），`/journey_no` 这次先不。没有正在等批的事时，
+这两个命令会明确告诉你「她现在没有在等你点头」，不会静默。
 
 ## 控制范围
 
@@ -217,14 +225,14 @@ frontmatter + 正文。插件侧有两条读法：
 
 ## 工具
 
-LLM 工具由引擎自动注册（0.5.25 是 6 个，0.5.16 是 5 个，以实际 `tools()` 为准）：
+LLM 工具由引擎自动注册（上游 0.8.6 提供 15 个，以实际 `tools()` 为准）：
 
-- `journey_now`
-- `journey_diary_write`
-- `journey_diary_read`
-- `journey_stats`
-- `journey_draw_to`
-- `journey_return_home`
+- `journey_now` / `journey_stats` / `journey_draw_to` / `journey_return_home`
+- `journey_diary_write` / `journey_diary_read`
+- `journey_photo`（0.8.5 起支持 `subject`：`ground` / `sky` / `food` / `street` / `festival` / `detail`，模型按用户的话选）
+- `journey_go_to` / `journey_lodging` / `journey_taste` / `journey_pet`
+- `journey_monthly` / `journey_yearly`（月报、年报）
+- `journey_invite` / `journey_accept`（碰面联机：发邀约、接邀约）
 
 上游新增工具会自动出现；不需要改插件代码。
 
@@ -245,8 +253,11 @@ LLM 工具由引擎自动注册（0.5.25 是 6 个，0.5.16 是 5 个，以实�
 4. 停事件泵 → 停 sidecar → 备份旧 `raw/` → 换新 `raw/`；
 5. 重启 sidecar、重新注册工具、恢复事件泵；
 6. 新版本起不来则**自动回滚**到旧 `raw/` 并重启；
-7. 更新成功后自动附上**更新日志**：从新版 `raw/CHANGELOG.md` 截取旧版 → 新版之间的段落
-   一起发出（旧版没收录时只截新版一节；超长截断并提示看全文；日志读不到不影响更新本身）。
+7. 成功后的输出**默认只有版本和结果**，不附更新日志。
+
+`update_show_changelog` **默认关闭**；打开后更新成功时附上从新版 `raw/CHANGELOG.md` 截取来的
+「旧版 → 新版」段落（旧版没收录时只截新版一节；超过 2500 字截断并提示看全文；
+日志读不到或没收录就在回复里说明，不影响更新本身）。「已经是最新」时不输出日志。
 
 `allow_upstream_update` **默认关闭**，要用时才在配置里打开（理由见「安全说明」）；
 `upstream_package`、`upstream_registry` 可换源；`upstream_source` 只是展示页面。
@@ -303,11 +314,55 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 ## 配置
 
 大部分字段和上游一致：`home_city`、`speed`、`beat_gap`、`rest_days`、`ask_before_depart`、
-`max_trip_months`、`with_user`、`money_enabled`、`budget`、`memory_dir`、`amap_key`、
-`image_api/key/style`。
+`max_trip_weeks`、`with_user`、`money_enabled`、`budget`、`has_license`、`meet_url`、
+`memory_dir`、`amap_key`、`image_api/key/style`。
+
+> **`max_trip_months` 没了**：上游 0.8 起「一次最多在外」按**周**算（`max_trip_weeks`，1–52，默认 26）。
+> 插件会自动把旧配置换算过来（1 个月 ≈ 4.345 周，日志里会写明换算结果）；
+> 之后请直接配 `max_trip_weeks`。
+
+上游 0.6–0.8.6 新增、插件表单已接上的字段：
+
+| 项 | 默认 | 说明 |
+|---|---|---|
+| `max_trip_weeks` | 26 | 一次最多在外几周，到点强制回家 |
+| `has_license` | 开 | 关掉后她永远不自驾、不租车 |
+| `meet_url` | 空 | 碰面服务器；见「碰面联机」 |
+| `image_protocol` | `openai` | `openai` 云端 / `comfyui` 本地；见「ComfyUI 接入」 |
+| `image_workflow` | 空 | ComfyUI 的 API 格式 workflow（协议选 comfyui 时必填） |
+| `image_prompt_node` | 空 | ComfyUI 提示词节点 id；留空自动找 |
+| `comfy_negative` | 空 | 负向提示词（仅 ComfyUI，主拍照和海报都传） |
+| `comfy_negative_node` | 空 | 负向节点 id；留空自动找 |
+| `image_timeout_sec` | 0 | 出图最多等几秒；0 = 默认（本地 180、云端 90）。`/journey_photo` 的等待上限自动跟随 |
+| `image_cast` | 空 | 照片里出不出人（留空无人；填一段外貌描述） |
+| `image_size` | 空 | 出图尺寸 `宽x高`（如 `1664x928`）；留空 1024x1024 |
+| `image_watermark` | `auto` | 「AI生成」水印：`auto` 云端裁/本地不裁、`off` 不裁、`crop` 都裁 |
+| `photo_dir` | 空 | 照片额外归档目录；留空用插件数据目录 |
 
 `image_model` 是**列表**（`生图模型名`）：按填写顺序尝试，第一个模型报错就自动换下一个，
-全部失败才抛出错误。留空按 `gpt-image-1` 试。
+全部失败才抛出错误。留空按 `gpt-image-1` 试。仅云端协议生效。
+
+### ComfyUI 接入
+
+`image_protocol=comfyui` 时她直接对着本地 ComfyUI 出图（`POST /prompt`，用你的 workflow）：
+
+1. `image_api` 填 ComfyUI 服务地址（如 `http://127.0.0.1:8188`），`image_key` 通常留空；
+2. `image_workflow` 粘贴「Save (API Format)」导出的 JSON；提示词节点、负向节点留空即自动找；
+3. 想排除季节不对的景观，填 `comfy_negative`；画幅用 `image_size`（自动吸附 8 的倍数）。
+
+套壳的**自拍参考图、提示词模板、模型列表降级只在 OpenAI 协议生效**（ComfyUI 的请求形状不同，
+拦不到也不该拦）；`image_protocol=comfyui` 且没单独配 `selfie_api` 时，自拍套壳与主动汇报配图
+自动停用并写日志。想「ComfyUI 画风景 + 云端画自拍」，把 `selfie_api/key` 单独指向云端即可。
+`image_watermark=auto` 也不会对本地出图动刀 —— 水印是云端服务商盖的，本地图没有。
+
+### 碰面联机
+
+`meet_url` 填一个「碰面服务器」地址（作者公共池 `https://cooppetsjourney.top`，也可自建），
+她就进入同城池：到站能看到这一带还有谁、`journey_invite` 发邀约、`journey_accept` 接邀约，
+接了会**真的**走过去待约定的那几天。只开一半没有意义（只能看别人或只能被看都是占便宜），
+所以是一个开关管两头。留空＝照常旅行，永远一个人，其它功能不受影响。
+被看见的只有宠物名、城市、时段（24 小时过期），不能聊天。
+开了 `ask_before_depart` 时，接邀约也会走「点头卡片」：`/journey_yes` 才算应约。
 
 套壳自己的：
 
@@ -332,6 +387,7 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | `upstream_package` | `coopani-world-journey` | 上游 npm 包名 |
 | `upstream_registry` | `https://registry.npmjs.org` | npm registry |
 | `upstream_source` | npm 页面 | 展示用源地址 |
+| `update_show_changelog` | 关 | `/journey_update` 成功时是否附上上游更新日志 |
 | `selfie_enabled` | 关 | 所有照片必须是自拍 |
 | `selfie_reference` | 空 | 自拍参考图（WebUI 上传） |
 | `selfie_reference_path` | 空 | 参考图绝对路径/URL（可选） |
@@ -394,12 +450,17 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 - **重载后没有孤儿进程**：插件用真实 `node.exe` + 心跳 + terminate；如果还有，查 `journey_debug`。
 - **主动消息没来**：确认 `proactive_enabled`、`event_target`（或先和机器人说话）、以及 sidecar 已就绪。
 - **照片没拍**：配 `image_api`/`image_key`/`image_model`；失败原因会回在 `/journey_photo`。
+  用 ComfyUI 时先核对 `image_protocol=comfyui` + `image_workflow` —— 协议选错**不报错**，只是一直拍不出来。
+- **照片永远是同一处风景**：那是默认题材 `ground`。在对话里说「拍晚饭/拍街景/拍特写」（模型会选
+  `subject`），或直接 `/journey_photo 晚饭`。
+- **开了「出门等你点头」她一直不走**：她发的是 `journey.ask` 事件，要回 `/journey_yes`（或 `/jy yes`）；
+  `/journey_depart` 是无条件放行。没有待批的事时 `/journey_yes` 会直说「她现在没有在等你点头」。
+- **拍照报 `Server disconnected`**：sidecar 在拍照途中被重载/重启（改配置、更新插件、重载插件）。
+  等几秒重试；客户端等待上限跟 `image_timeout_sec` 走（至少 150s），不会用 10s 默认超时误杀慢图。
 - **出图画风和 `image_style` 不一致**：先跑 `/journey_debug` 看「生图画风 / 提示词模板 / 空镜套模板」
   三行，再到 `logs/sidecar.log` 找 `生图提示词（…）：…`，那行就是发给接口的原文。
   原文里没有你的画风，说明模板被自定义文本盖住了（例如旧 `selfie_prompt` 里写死了「真实手机自拍质感」）；
   原文里有画风还是出真人，那就是底模不听指令，换 `image_model`。
-- **拍照报 `Server disconnected`**：sidecar 在拍照途中被重载/重启（改配置、更新插件、重载插件）。
-  等几秒重试；v0.6.5 起客户端最多等 150s，不会用 10s 默认超时误杀慢图。
 - **拍照很慢**：v0.6.6 起 `/journey_photo` 立刻返回“开始拍了”，后台等图；出图后自动发。
   如果主动消息关着，后台任务会直接发到发命令的会话；失败也会主动回原因。
 - **更新失败**：看回复里的原因；插件会回滚旧 `raw/`。确认能访问 npm，且 Node 22.7+。

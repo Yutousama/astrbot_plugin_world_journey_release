@@ -429,7 +429,8 @@ class SidecarBridge:
             if resp.status >= 400:
                 # 工具/动作的业务错误交给调用方展示，不抛成 bridge 故障。
                 if (path.startswith("/api/tools/") and resp.status == 400) or (
-                    path in ("/api/depart", "/api/sync", "/api/photo") and resp.status in (400, 409)
+                    path in ("/api/depart", "/api/sync", "/api/photo", "/api/ask", "/api/return-home")
+                    and resp.status in (400, 409)
                 ):
                     return data
                 reason = data.get("error") or data.get("reason") or text[:300]
@@ -452,8 +453,8 @@ class SidecarBridge:
         data = await self._request("GET", "/api/tools")
         return list(data.get("tools") or [])
 
-    async def call_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
-        return await self._request("POST", f"/api/tools/{name}", body=args)
+    async def call_tool(self, name: str, args: dict[str, Any], timeout: float | None = None) -> dict[str, Any]:
+        return await self._request("POST", f"/api/tools/{name}", body=args, timeout=timeout)
 
     async def depart(self) -> dict[str, Any]:
         return await self._request("POST", "/api/depart", body={})
@@ -461,16 +462,34 @@ class SidecarBridge:
     async def sync(self) -> dict[str, Any]:
         return await self._request("POST", "/api/sync", body={})
 
+    async def ask(self, ok: bool) -> dict[str, Any]:
+        """回答「出门等点头 / 接邀约」卡片：好 / 不好（面板按钮的聊天替身）。"""
+        return await self._request("POST", "/api/ask", body={"ok": bool(ok)})
+
+    async def return_home(self) -> dict[str, Any]:
+        """叫她回来（上游面板「回来」按钮的替身）。"""
+        return await self._request("POST", "/api/return-home", body={})
+
     async def photo(self) -> dict[str, Any]:
         try:
-            # 上游生图超时是 90s；HTTP 客户端不能用默认的 10s。
-            return await self._request("POST", "/api/photo", body={}, timeout=150)
+            # 上游生图默认超时 90/180s，`image_timeout_sec` 还能配更大；
+            # HTTP 客户端必须比上游等图的时间更长，否则套壳先掐自己。
+            return await self._request("POST", "/api/photo", body={}, timeout=self.photo_timeout)
         except aiohttp.ServerDisconnectedError as exc:
             raise BridgeError("sidecar 连接被关闭（通常是插件正在重载/重启）；等几秒再试") from exc
         except aiohttp.ClientConnectorError as exc:
             raise BridgeError("连不上 sidecar（可能正在重启）；等几秒再试") from exc
         except asyncio.TimeoutError as exc:
-            raise BridgeError("等图超过 150s；接口可能还在生成，稍后看相册") from exc
+            raise BridgeError(f"等图超过 {int(self.photo_timeout)}s；接口可能还在生成，稍后看相册") from exc
+
+    @property
+    def photo_timeout(self) -> float:
+        """出图类请求的客户端超时：至少 150s；用户配了更长 `image_timeout_sec` 就再加 60s 余量。"""
+        try:
+            configured = float(self.config.get("image_timeout_sec") or 0)
+        except (TypeError, ValueError):
+            configured = 0.0
+        return max(150.0, configured + 60.0)
 
     async def reportImage(self, text: str) -> bytes | None:
         """主动汇报配图：让 sidecar 用自拍配置生成一张图；失败返回 None（只发文字）。

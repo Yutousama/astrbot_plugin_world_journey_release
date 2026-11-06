@@ -1233,6 +1233,34 @@ var RawBridge = class {
       return { ok: false, reason: e instanceof Error ? e.message : String(e) };
     }
   }
+  /**
+   * 回答「出门等点头」/「接邀约」的卡片（上游面板的两个按钮）。
+   *
+   * 先读快照里的 `ask`：没有在等批的事时上游会静默吞掉（`answerAsk` 直接 return），
+   * 用户在聊天里得不到任何反馈 —— 这里把「她现在没在问你」变成明确的一句话。
+   */
+  async askAnswer(ok) {
+    try {
+      const snap = await this.snapshot();
+      const pending = snap.ask;
+      if (!pending) return { ok: false, reason: "\u5979\u73B0\u5728\u6CA1\u6709\u5728\u7B49\u4F60\u70B9\u5934\uFF08\u4E5F\u8BB8\u6CA1\u5F00\u300C\u51FA\u95E8\u7B49\u70B9\u5934\u300D\uFF0C\u4E5F\u8BB8\u5979\u8FD8\u6CA1\u95EE\uFF09\u3002" };
+      const snapshot = await this.ui.invoke("now", "answerAsk", [ok]);
+      const head = pending.line ? `${pending.line}
+` : "";
+      return { ok: true, text: ok ? `${head}\u4ED6\u70B9\u4E86\u5934\u3002${this.now()}` : `${head}\u4ED6\u7B54\u4E86\u300C\u4E0D\u597D\u300D\u3002`, snapshot };
+    } catch (e) {
+      return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    }
+  }
+  /** 叫她回来（上游面板「回来」按钮；`journey_return_home` 工具走的是同一条腿）。 */
+  async returnHome() {
+    try {
+      const snapshot = await this.ui.invoke("now", "returnHome", []);
+      return { ok: true, text: this.now(), snapshot };
+    } catch (e) {
+      return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    }
+  }
   async photo() {
     try {
       const raw = await this.ui.invoke("album", "shoot", []);
@@ -1267,6 +1295,7 @@ var RawBridge = class {
   selfieOptions() {
     const cfg = this.cfg;
     if (!cfg || cfg.selfieEnabled !== true) return null;
+    if (this.comfySelfieBlocked(cfg)) return null;
     const rawRefs = Array.isArray(cfg.selfieReference) ? cfg.selfieReference : typeof cfg.selfieReference === "string" ? [cfg.selfieReference] : [];
     const references = rawRefs.filter((v) => typeof v === "string" && v.trim().length > 0).map((ref) => this.resolveReference(ref.trim()));
     const modeRaw = stringOf2(cfg.selfieMode).toLowerCase();
@@ -1298,6 +1327,11 @@ var RawBridge = class {
     const fresh = stringOf2(cfg.imagePromptTemplate).trim();
     if (fresh) return fresh;
     return stringOf2(cfg.selfiePrompt).trim();
+  }
+  /** 「出镜自拍」开了、但生图协议是 ComfyUI 且没单独配 selfieApi —— 自拍/汇报配图应整体停用。 */
+  comfySelfieBlocked(cfg) {
+    const proto = stringOf2(cfg.imageProtocol).trim().toLowerCase();
+    return proto === "comfyui" && !stringOf2(cfg.selfieApi).trim();
   }
   /**
    * 空镜（没开自拍）的模板配置。
@@ -1335,6 +1369,9 @@ var RawBridge = class {
     this.uninstallSelfie = null;
     const selfie = this.selfieOptions();
     const models = this.imageModels();
+    if (!selfie && this.cfg && this.comfySelfieBlocked(this.cfg)) {
+      this.log.info("\u751F\u56FE\u534F\u8BAE\u662F ComfyUI\uFF1A\u81EA\u62CD\u5957\u58F3\u4E0E\u4E3B\u52A8\u6C47\u62A5\u914D\u56FE\u4E0D\u751F\u6548\uFF08\u8981\u7528\u7684\u8BDD\u5355\u72EC\u914D selfie_api \u6307\u5411\u4E91\u7AEF\u751F\u56FE\u670D\u52A1\uFF09\u3002");
+    }
     const scene = selfie ? null : this.sceneOptions();
     if (!selfie && !scene && models.length === 0) return;
     const proxy = installPhotoProxy({ models, selfie, scene, clock: () => this.localClock() }, this.log);
@@ -1705,6 +1742,18 @@ async function handle(req, res, opts) {
   }
   if (method === "POST" && path === "/api/photo") {
     const result = await opts.bridge.photo();
+    json(res, result.ok ? 200 : 409, result);
+    return;
+  }
+  if (method === "POST" && path === "/api/ask") {
+    const raw = await readJsonBody(req);
+    const ok = raw && typeof raw === "object" && !Array.isArray(raw) ? raw.ok === true : false;
+    const result = await opts.bridge.askAnswer(ok);
+    json(res, result.ok ? 200 : 409, result);
+    return;
+  }
+  if (method === "POST" && path === "/api/return-home") {
+    const result = await opts.bridge.returnHome();
     json(res, result.ok ? 200 : 409, result);
     return;
   }

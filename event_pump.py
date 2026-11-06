@@ -138,6 +138,10 @@ class EventPump:
     async def _send_event(self, event: dict[str, Any]) -> None:
         target = self.target or self.fallback_umo().strip()
         text = str(event.get("text") or "").strip()
+        # 上游那张「好/不好」卡片是给面板按钮的；聊天里没有面板，
+        # 就在问题后面补一句能用的一句话答案，不然这条事件只是噪音。
+        if str(event.get("type") or "") == "journey.ask" and "/journey_yes" not in text:
+            text += "\n（想点头就发 /journey_yes 或 /jy yes；这次先不就 /journey_no。）"
         if not target:
             self.log.warning("[world-journey] 主动事件没有目标会话；只推进 seq。配置 event_target 或先和机器人说句话。")
             return

@@ -18,15 +18,31 @@ FIELD_MAP: dict[str, str] = {
     "beat_gap": "beatGap",
     "rest_days": "restDays",
     "ask_before_depart": "askBeforeDepart",
-    "max_trip_months": "maxTripMonths",
+    # 0.8.6 起上游把「一次最多在外」从月改成周（maxTripMonths → maxTripWeeks）。
+    # 旧键由 _migrate_max_trip() 换算，不再直接映射 —— 映射了上游也不认，
+    # 用户的设置会静默失效（这正是改名最容易漏的那类破坏）。
+    "max_trip_weeks": "maxTripWeeks",
     "with_user": "withUser",
     "money_enabled": "moneyEnabled",
     "budget": "budget",
+    "has_license": "hasLicense",
+    "meet_url": "meetUrl",
     "memory_dir": "memoryDir",
     "amap_key": "amapKey",
     "image_api": "imageApi",
     "image_style": "imageStyle",
     "image_key": "imageKey",
+    # 0.6–0.8 的上游出图链路：协议选择、ComfyUI 工作流、负向提示词、超时、人物、尺寸、水印、目录。
+    "image_protocol": "imageProtocol",
+    "image_workflow": "imageWorkflow",
+    "image_prompt_node": "imagePromptNode",
+    "comfy_negative": "comfyNegative",
+    "comfy_negative_node": "comfyNegativeNode",
+    "image_timeout_sec": "imageTimeoutSec",
+    "image_cast": "imageCast",
+    "image_size": "imageSize",
+    "image_watermark": "imageWatermark",
+    "photo_dir": "photoDir",
     # 生图提示词模板：新字段（出镜自拍 / 空镜各一套）+ 是否让模板也接管空镜。
     # 「新字段留空时回退旧 selfie_prompt」只在 adapter/bridge.ts 一处实现，这里不重复。
     "image_prompt_template": "imagePromptTemplate",
@@ -47,6 +63,10 @@ FIELD_MAP: dict[str, str] = {
     "selfie_size": "selfieSize",
 }
 
+# 新版 schema 的默认周数（≈ 旧「6 个月」）。迁移只在用户没动过新键时生效。
+MAX_TRIP_WEEKS_DEFAULT = 26
+_MONTHS_TO_WEEKS = 4.345
+
 PLUGIN_DIR = Path(__file__).resolve().parent
 
 
@@ -60,6 +80,8 @@ def build_engine_config(
     for plugin_key, engine_key in FIELD_MAP.items():
         if plugin_key in config and config[plugin_key] is not None:
             engine[engine_key] = config[plugin_key]
+
+    _migrate_max_trip(config, engine, log)
 
     extra = config.get("extra_config") or ""
     if isinstance(extra, dict):
@@ -130,6 +152,35 @@ def write_engine_config(path: Path, config: dict[str, Any], log: Any = None) -> 
     tmp = path.with_name(f"{path.name}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
+
+
+def _migrate_max_trip(config: dict[str, Any], engine: dict[str, Any], log: Any = None) -> None:
+    """旧「一次最多在外几个月」→「几周」换算（0.8.6 上游改名 + 换单位）。
+
+    判据：旧键有值、且新键还停在默认 26 周（用户没显式动过），才按 1 月 ≈ 4.345 周换算。
+    旧值 6（旧默认）换算后正好 26，等价于不动；用户填过 12 的会变成 52，不会静默失效。
+    新键只要被填成非默认值就优先 —— 尊重用户当下的选择。
+    """
+    months = config.get("max_trip_months")
+    if months is None:
+        return
+    weeks = config.get("max_trip_weeks")
+    if weeks is not None and weeks != MAX_TRIP_WEEKS_DEFAULT:
+        return
+    try:
+        months_val = float(months)
+    except (TypeError, ValueError):
+        return
+    if months_val <= 0:
+        return
+    converted = max(1, min(52, round(months_val * _MONTHS_TO_WEEKS)))
+    engine["maxTripWeeks"] = converted
+    if callable(getattr(log, "info", None)):
+        log.info(
+            "[world-journey] 「一次最多在外」已从按月改成按周：旧设置 %s 个月 → %s 周；"
+            "以后请直接配 max_trip_weeks。",
+            months, converted,
+        )
 
 
 def _resolve_references(value: Any, base_dir: Path) -> list[str]:
