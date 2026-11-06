@@ -270,18 +270,27 @@ Node 26+ 也一样：`engine/amaro` 只在启动 sidecar 时参与，替换 `raw
 `/journey_debug` 也会显示当前源码版本与记录的最新版本两行。
 
 反过来「**壳是新的、上游是旧的**」（更新了插件但 `raw/` 停在旧基线）也有兜底：
-新指令在**命中时**先比对上游版本，功能需要的最低版本不满足就**不会去调引擎**，
-直接回明确指引，例如：
+新指令在**命中时**先确认上游真有这个功能，没有就**不去调引擎**，直接回明确指引，例如：
 
 > 「点头卡片答复（/journey_yes、/journey_no）」用不了：需要上游源码 ≥0.7.9，当前是 0.5.26。
 > npm 上已有 0.8.6。管理员先在插件配置里打开「允许从 npm 更新上游源码」再发 /journey_update；
 > 或把插件升级到随包带新上游的版本。
 
-覆盖的指令与门槛（来自上游 CHANGELOG 的功能引入版本）：
-`/journey_yes`、`/journey_no` ≥ 0.7.9；`/journey_back` ≥ 0.5.19；
-`/journey_photo 带题材` ≥ 0.8.5（不带题材的补拍旧版就有，不拦）。
+判定**优先用引擎的能力实测**：sidecar 的 `/api/health` 报告当前真加载进来的 raw
+有没有 `answerAsk` 方法、`journey_return_home` 工具、`journey_photo` 的 `subject` 参数——
+上游一更新这份实测自动跟上，**不依赖手工版本表**；只有 sidecar 没起来、或旧引擎不报
+实测时，才退回「raw 版本号 vs 最低版本表」兜底。所以上游 `/journey_update` 升到未来
+版本、甚至哪天把功能改名了，都不会被过期的表误拦或漏拦。
+
+覆盖的指令（实测键 ↔ 最低版本，来自上游 CHANGELOG 的功能引入版本）：
+`/journey_yes`、`/journey_no` ↔ `answerAsk` ≥ 0.7.9；`/journey_back` ↔ `journey_return_home` ≥ 0.5.19；
+`/journey_photo 带题材` ↔ `subject` 参数 ≥ 0.8.5（不带题材的补拍旧版就有，不拦）。
 「npm 已有哪个版本」在 `plugin_data/upstream-latest.json` 缓存 6 小时，
-查询失败不报错、沿用旧缓存——这条路径只在功能缺失时走，正常命令零开销。
+查询失败不报错、沿用旧缓存——只在功能缺失时才走这条网络路径。
+
+**维护约定**：以后每加一个「面板方法类指令」，三处各加一行——`adapter/bridge.ts` 的
+`capabilities()` 加实测键，`main.py` 的 `_FEATURE_MIN_RAW` 与 `_FEATURE_CAP_KEY` 各加一条
+（表只提供文案与离线兜底；漏登记不会误拦，判定主路永远以实测为准）。
 
 ## 提示词
 

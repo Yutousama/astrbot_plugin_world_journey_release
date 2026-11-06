@@ -58,6 +58,15 @@ _FEATURE_MIN_RAW: dict[str, tuple[str, str]] = {
     "photo_subject": ("带题材的拍照（/journey_photo …）", "0.8.5"),
 }
 
+# 功能 → sidecar /api/health 里 capabilities() 的实测键名（adapter/bridge.ts）。
+# 版本表只是文案素材与离线兜底；**判定以实测为准**，上游改名/新增时自动跟上。
+# 新增面板方法类指令时：bridge.ts capabilities() 加一行、这张表和上面那张各加一条。
+_FEATURE_CAP_KEY: dict[str, str] = {
+    "ask": "answerAsk",
+    "back": "returnHome",
+    "photo_subject": "photoSubject",
+}
+
 
 class WorldJourneyPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -906,12 +915,17 @@ class WorldJourneyPlugin(Star):
         if not self._can_control(event):
             yield event.plain_result("这个操作需要管理员；可以在插件配置里关掉 admin_only_controls。")
             return
-        block = self._require_raw("ask")
+        block: str | None
+        try:
+            await self._ensure_ready()
+            block = await self._require_raw("ask")
+        except Exception as exc:
+            yield event.plain_result(f"没答上：{exc}")
+            return
         if block:
             yield event.plain_result(block)
             return
         try:
-            await self._ensure_ready()
             result = await self.bridge.ask(ok)
         except Exception as exc:
             yield event.plain_result(f"没答上：{exc}")
@@ -930,12 +944,17 @@ class WorldJourneyPlugin(Star):
         if not self._can_control(event):
             yield event.plain_result("这个操作需要管理员；可以在插件配置里关掉 admin_only_controls。")
             return
-        block = self._require_raw("back")
+        block: str | None
+        try:
+            await self._ensure_ready()
+            block = await self._require_raw("back")
+        except Exception as exc:
+            yield event.plain_result(f"没叫回来：{exc}")
+            return
         if block:
             yield event.plain_result(block)
             return
         try:
-            await self._ensure_ready()
             result = await self.bridge.return_home()
         except Exception as exc:
             yield event.plain_result(f"没叫回来：{exc}")
@@ -995,7 +1014,9 @@ class WorldJourneyPlugin(Star):
                 )
                 return
             tool_args = {"subject": subject}
-            block = self._require_raw("photo_subject")
+            # 拍照走后台任务，这里不为探测强起引擎：sidecar 没就绪时
+            # _require_raw 自动退回版本表兜底。
+            block = await self._require_raw("photo_subject")
             if block:
                 yield event.plain_result(block)
                 return
@@ -1637,13 +1658,33 @@ class WorldJourneyPlugin(Star):
                 )
         return version
 
-    def _require_raw(self, feature: str) -> str | None:
-        """raw 版本够用返回 None；否则返回可直接回复用户的指引文案。"""
+    async def _require_raw(self, feature: str) -> str | None:
+        """上游真有这功能返回 None；否则返回可直接回复用户的指引文案。
+
+        判定优先用 sidecar 的**能力实测**（health.capabilities，由真加载进来的 raw
+        算出）——上游更新后自动跟上，不依赖手工表的版本记对没有；sidecar 没起来、
+        或旧引擎根本不报 capabilities 时，退回「raw 版本号 vs 表里最低版本」兜底。
+        """
         name, min_ver = _FEATURE_MIN_RAW[feature]
+        cap = _FEATURE_CAP_KEY[feature]
+        supported: bool | None = None
+        if self.bridge is not None:
+            try:
+                caps = (await self.bridge.health()).get("capabilities")
+                if isinstance(caps, dict) and cap in caps:
+                    supported = bool(caps[cap])
+            except Exception:
+                supported = None
         current = self._raw_version()
-        if current and version_key(current) >= version_key(min_ver):
+        if supported is True:
             return None
-        parts = [f"「{name}」用不了：需要上游源码 ≥{min_ver}，当前是 {current or '读不到（raw/ 不见了）'}。"]
+        if supported is None and current and version_key(current) >= version_key(min_ver):
+            return None
+        if supported is False:
+            head = f"「{name}」用不了：当前上游源码（{current or '版本未知'}）没有暴露这个功能。"
+        else:
+            head = f"「{name}」用不了：需要上游源码 ≥{min_ver}，当前是 {current or '读不到（raw/ 不见了）'}。"
+        parts = [head]
         latest = self._npm_latest_version()
         if latest and version_key(latest) >= version_key(min_ver):
             parts.append(f"npm 上已有 {latest}。")

@@ -1278,8 +1278,34 @@ var RawBridge = class {
       version: BRIDGE_VERSION,
       upstreamVersion: this.upstreamVersion,
       eventLogId: this.events.eventLogId,
-      lastSeq: this.events.lastSeq
+      lastSeq: this.events.lastSeq,
+      capabilities: this.capabilities()
     };
+  }
+  /** 能力实测：当前**真加载进来的 raw** 有没有这些方法/参数，如实上报给壳层。
+   *
+   * 壳层的指令版本闸优先信这份实测，而不是手工维护的「功能→最低版本」表 ——
+   * 上游一更新这里自动跟上，忘记登记表也不会误拦（表退化为文案素材和离线兜底）。
+   * world 还没起来返回空对象：壳层视作「测不到」，走版本表兜底。
+   */
+  capabilities() {
+    const world = this.world;
+    if (!world) return {};
+    let answerAsk = false;
+    let returnHome = false;
+    let photoSubject = false;
+    try {
+      answerAsk = typeof world.answerAsk === "function";
+      const tools = this.tools();
+      const names = new Set(tools.map((t) => t.name));
+      returnHome = names.has("journey_return_home");
+      const photo = tools.find((t) => t.name === "journey_photo");
+      const props = photo?.parameters?.properties;
+      photoSubject = !!props && "subject" in props;
+    } catch {
+      return {};
+    }
+    return { answerAsk, returnHome, photoSubject };
   }
   defaultConfig() {
     if (!this.rawDefaults) throw new Error("raw \u8FD8\u6CA1\u542F\u52A8\uFF0C\u9ED8\u8BA4\u914D\u7F6E\u4E0D\u53EF\u7528");
