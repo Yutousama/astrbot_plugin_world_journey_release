@@ -41,9 +41,22 @@ from .defaults import DEFAULT_IMAGE_PROMPT, DEFAULT_SCENE_PROMPT, LEGACY_SELFIE_
 from .diary_view import clock_minutes, parse_write_time, plain_text, read_diary_entries
 from .event_pump import EventPump
 from .reset import clear_memory_dir
-from .upstream_version import downgrade_hint, newest_version, read_pkg_version
+from .upstream_version import downgrade_hint, newest_version, read_pkg_version, version_key
 
 PLUGIN_NAME = "astrbot_plugin_world_journey"
+
+# 功能 → 上游 raw 最低版本（对应 raw/CHANGELOG 的「功能引入」条目）。
+# 「壳新 raw 旧」时的典型错法：命令在壳里有、raw 里没这功能 —— 旧 raw 找不到
+# 方法/参数会**静默给错行为**（点头答不上、题材拍成普通风景）。命中指令先按
+# 这张表比对版本，不足就不去调引擎，直接回升级指引。
+_FEATURE_MIN_RAW: dict[str, tuple[str, str]] = {
+    # 0.7.9：待批卡片进快照 + 面板「好/不好」即 answerAsk
+    "ask": ("点头卡片答复（/journey_yes、/journey_no）", "0.7.9"),
+    # 0.5.19：「叫她回来」面板按钮与 returnHome
+    "back": ("叫她回来（/journey_back）", "0.5.19"),
+    # 0.8.5：journey_photo 的 subject 六题材
+    "photo_subject": ("带题材的拍照（/journey_photo …）", "0.8.5"),
+}
 
 
 class WorldJourneyPlugin(Star):
@@ -893,6 +906,10 @@ class WorldJourneyPlugin(Star):
         if not self._can_control(event):
             yield event.plain_result("这个操作需要管理员；可以在插件配置里关掉 admin_only_controls。")
             return
+        block = self._require_raw("ask")
+        if block:
+            yield event.plain_result(block)
+            return
         try:
             await self._ensure_ready()
             result = await self.bridge.ask(ok)
@@ -912,6 +929,10 @@ class WorldJourneyPlugin(Star):
             return
         if not self._can_control(event):
             yield event.plain_result("这个操作需要管理员；可以在插件配置里关掉 admin_only_controls。")
+            return
+        block = self._require_raw("back")
+        if block:
+            yield event.plain_result(block)
             return
         try:
             await self._ensure_ready()
@@ -974,6 +995,10 @@ class WorldJourneyPlugin(Star):
                 )
                 return
             tool_args = {"subject": subject}
+            block = self._require_raw("photo_subject")
+            if block:
+                yield event.plain_result(block)
+                return
         if self._photo_task is not None and not self._photo_task.done():
             yield event.plain_result("上一张还在拍，等出图或超时后再试。")
             return
@@ -1565,6 +1590,71 @@ class WorldJourneyPlugin(Star):
             self._save_upstream_state(raw_version, newest)
         self._upstream_hint = hint
         return hint
+
+    # ---------------- 指令命中时的上游版本闸 ----------------
+    _UPSTREAM_LATEST_TTL = 6 * 3600.0
+
+    def _raw_version(self) -> str:
+        return read_pkg_version(RAW_DIR / "package.json")
+
+    def _npm_latest_version(self) -> str:
+        """「npm 上最新上游版本」：读 plugin_data 缓存，过期才联网（5 秒超时）。
+
+        查询失败不报错——沿用旧缓存值；这条路径只在「功能缺失」时走，
+        给用户一句「npm 已有 x.y.z」的可操作提示，仅此而已。
+        """
+        cache = self.data_dir / "upstream-latest.json"
+        version = ""
+        checked = 0.0
+        try:
+            data = json.loads(cache.read_text(encoding="utf-8-sig"))
+            version = str(data.get("version") or "")
+            checked = float(data.get("checkedAt") or 0)
+        except Exception:
+            pass
+        if version and time.time() - checked < self._UPSTREAM_LATEST_TTL:
+            return version
+        package = str(self.cfg.get("upstream_package") or "coopani-world-journey")
+        registry = str(self.cfg.get("upstream_registry") or "https://registry.npmjs.org").rstrip("/")
+        try:
+            import urllib.parse
+            import urllib.request
+
+            url = f"{registry}/{urllib.parse.quote(package, safe='')}"
+            request = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                meta = json.loads(response.read().decode("utf-8", "replace"))
+            latest = str((meta.get("dist-tags") or {}).get("latest") or "")
+        except Exception as exc:
+            logger.debug("[world-journey] 查询 npm 最新版本失败：%s", exc)
+            return version
+        if latest:
+            version = latest
+            with contextlib.suppress(Exception):
+                cache.write_text(
+                    json.dumps({"version": latest, "checkedAt": time.time()}, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+        return version
+
+    def _require_raw(self, feature: str) -> str | None:
+        """raw 版本够用返回 None；否则返回可直接回复用户的指引文案。"""
+        name, min_ver = _FEATURE_MIN_RAW[feature]
+        current = self._raw_version()
+        if current and version_key(current) >= version_key(min_ver):
+            return None
+        parts = [f"「{name}」用不了：需要上游源码 ≥{min_ver}，当前是 {current or '读不到（raw/ 不见了）'}。"]
+        latest = self._npm_latest_version()
+        if latest and version_key(latest) >= version_key(min_ver):
+            parts.append(f"npm 上已有 {latest}。")
+        if bool(self.cfg.get("allow_upstream_update")):
+            parts.append("管理员发 /journey_update 升级上游即可。")
+        else:
+            parts.append(
+                "管理员先在插件配置里打开「允许从 npm 更新上游源码」再发 /journey_update；"
+                "或把插件升级到随包带新上游的版本。"
+            )
+        return "".join(parts)
 
     def _state_path(self) -> Path:
         return self.data_dir / "plugin_state.json"

@@ -269,6 +269,20 @@ Node 26+ 也一样：`engine/amaro` 只在启动 sidecar 时参与，替换 `raw
 `plugin_data/upstream-state.json` 里记录的历史版本，发现被换回旧版就在日志里 warn，
 `/journey_debug` 也会显示当前源码版本与记录的最新版本两行。
 
+反过来「**壳是新的、上游是旧的**」（更新了插件但 `raw/` 停在旧基线）也有兜底：
+新指令在**命中时**先比对上游版本，功能需要的最低版本不满足就**不会去调引擎**，
+直接回明确指引，例如：
+
+> 「点头卡片答复（/journey_yes、/journey_no）」用不了：需要上游源码 ≥0.7.9，当前是 0.5.26。
+> npm 上已有 0.8.6。管理员先在插件配置里打开「允许从 npm 更新上游源码」再发 /journey_update；
+> 或把插件升级到随包带新上游的版本。
+
+覆盖的指令与门槛（来自上游 CHANGELOG 的功能引入版本）：
+`/journey_yes`、`/journey_no` ≥ 0.7.9；`/journey_back` ≥ 0.5.19；
+`/journey_photo 带题材` ≥ 0.8.5（不带题材的补拍旧版就有，不拦）。
+「npm 已有哪个版本」在 `plugin_data/upstream-latest.json` 缓存 6 小时，
+查询失败不报错、沿用旧缓存——这条路径只在功能缺失时走，正常命令零开销。
+
 ## 提示词
 
 开启 `inject_prompt` 后，每次 LLM 请求会追加一段旅行状态（她所在城市、当地时刻、今晚住哪、接下来做什么）。
@@ -456,7 +470,9 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
   用 ComfyUI 时先核对 `image_protocol=comfyui` + `image_workflow` —— 协议选错**不报错**，只是一直拍不出来。
 - **照片永远是同一处风景**：那是默认题材 `ground`。在对话里说「拍晚饭/拍街景/拍特写」（模型会选
   `subject`），或直接 `/journey_photo 晚饭`。
-- **开了「出门等你点头」她一直不走**：她发的是 `journey.ask` 事件，要回 `/journey_yes`（或 `/jy yes`）；
+- **新指令回「需要上游源码 ≥x.y.z」**：壳是新的、`raw/` 还是旧基线 —— 按回复里的指引升级上游
+  （打开 `allow_upstream_update` 后 `/journey_update`），不是命令写错了。
+- **点头没反应/她一直不走**：先确认不是版本闸提示；开了「出门等点头」时她发的是 `journey.ask` 事件，要回 `/journey_yes`（或 `/jy yes`）；
   `/journey_depart` 是无条件放行。没有待批的事时 `/journey_yes` 会直说「她现在没有在等你点头」。
 - **拍照报 `Server disconnected`**：sidecar 在拍照途中被重载/重启（改配置、更新插件、重载插件）。
   等几秒重试；客户端等待上限跟 `image_timeout_sec` 走（至少 150s），不会用 10s 默认超时误杀慢图。
