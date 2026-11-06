@@ -27,6 +27,11 @@ FIELD_MAP: dict[str, str] = {
     "image_api": "imageApi",
     "image_style": "imageStyle",
     "image_key": "imageKey",
+    # 生图提示词模板：新字段（出镜自拍 / 空镜各一套）+ 是否让模板也接管空镜。
+    # 「新字段留空时回退旧 selfie_prompt」只在 adapter/bridge.ts 一处实现，这里不重复。
+    "image_prompt_template": "imagePromptTemplate",
+    "image_prompt_scene_template": "imagePromptSceneTemplate",
+    "image_prompt_for_scene": "imagePromptForScene",
     # image_model 是列表，单靠 FIELD_MAP 传不过去；在下面统一拆成 imageModels/imageModel。
     "selfie_enabled": "selfieEnabled",
     "selfie_reference": "selfieReference",

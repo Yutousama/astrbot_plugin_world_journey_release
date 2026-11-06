@@ -37,7 +37,7 @@ except Exception:  # pragma: no cover - 老版本兜底
 from .access import access_allowed
 from .bridge import BridgeError, RAW_DIR, SidecarBridge, UPDATER
 from .config_map import write_engine_config
-from .defaults import DEFAULT_SELFIE_PROMPT
+from .defaults import DEFAULT_IMAGE_PROMPT, DEFAULT_SCENE_PROMPT, LEGACY_SELFIE_PROMPT
 from .diary_view import clock_minutes, parse_write_time, plain_text, read_diary_entries
 from .event_pump import EventPump
 from .reset import clear_memory_dir
@@ -52,7 +52,7 @@ class WorldJourneyPlugin(Star):
         self.context = context
         self._config_obj = config
         self.cfg: dict[str, Any] = config
-        self._normalize_selfie_prompt()
+        self._normalize_image_prompt()
         self._normalize_image_model()
         self.plugin_dir = Path(__file__).resolve().parent
         try:
@@ -76,14 +76,40 @@ class WorldJourneyPlugin(Star):
         # 上游源码被装回旧版时的提示（/journey_debug 里也显示）。
         self._upstream_hint = ""
 
-    def _normalize_selfie_prompt(self) -> None:
-        """空模板回填默认值，并写回 AstrBot 配置，保证设置页能看到。"""
-        current = str(self.cfg.get("selfie_prompt") or "").strip()
-        if current:
-            return
-        self.cfg["selfie_prompt"] = DEFAULT_SELFIE_PROMPT
-        with contextlib.suppress(Exception):
-            self._config_obj.save_config()
+    def _normalize_image_prompt(self) -> None:
+        """把提示词模板迁到「生图提示词模板」，并给空镜模板回填默认值。
+
+        旧的 `selfie_prompt` 有三种来历，处理不一样，**不能一律覆盖**：
+
+        - 空的：新字段直接回填内置默认；
+        - 填的正好是旧版默认模板：等于用户从没改过，换成新的画风跟随模板，并清空旧字段；
+        - 用户自己改过：新字段留空，运行期回退读旧字段，一个字都不动他的内容。
+
+        旧字段里那句「真实手机自拍质感」是「画面风格」失效的直接原因之一，
+        但它是用户写的，只能由他自己改 —— 所以这里识别并原样保留，不冒充用户意图。
+        """
+        changed = False
+        fresh = str(self.cfg.get("image_prompt_template") or "").strip()
+        legacy = str(self.cfg.get("selfie_prompt") or "").strip()
+        if not fresh and (not legacy or legacy == LEGACY_SELFIE_PROMPT.strip()):
+            self.cfg["image_prompt_template"] = DEFAULT_IMAGE_PROMPT
+            if legacy:
+                self.cfg["selfie_prompt"] = ""
+            changed = True
+        if not str(self.cfg.get("image_prompt_scene_template") or "").strip():
+            self.cfg["image_prompt_scene_template"] = DEFAULT_SCENE_PROMPT
+            changed = True
+        if changed:
+            with contextlib.suppress(Exception):
+                self._config_obj.save_config()
+
+    def _template_source(self) -> str:
+        """当前出镜模板实际取自哪一处 —— 给 /journey_debug 用，画风不对时先看到这行。"""
+        if str(self.cfg.get("image_prompt_template") or "").strip():
+            return "生图提示词模板"
+        if str(self.cfg.get("selfie_prompt") or "").strip():
+            return "自拍提示词模板（旧字段）"
+        return "内置默认"
 
     def _normalize_image_model(self) -> None:
         """老版本把「生图模型名」存成单个字符串；列表控件要数组，迁移一次并写回。
@@ -293,6 +319,12 @@ class WorldJourneyPlugin(Star):
         self.pump.start()
 
     async def _maybe_report_image(self, event: dict[str, Any]) -> bytes | None:
+        """主动汇报的配图。
+
+        提示词由 sidecar 用**和 /journey_photo 同一套**场景描述生成（含「画面风格」），
+        这里只决定要不要配、以及概率。`journey.photo` 事件本身已经带照片，
+        不再叠一张；没开自拍时也不配图 —— 保持原来的成本上限。
+        """
         if str(event.get("type") or "") == "journey.photo":
             return None
         if not self.cfg.get("selfie_enabled"):
@@ -448,6 +480,41 @@ class WorldJourneyPlugin(Star):
         self._save_state()
         self._diary_next_attempt = 0.0
         logger.info("[world-journey] 自动日记已写：%s（%d 字）", date_key, len(body))
+        await self._notify_diary_written(snap, date_key, body)
+
+    def _diary_notify_target(self) -> str:
+        """日记推送对象：主要通知人 → event_target → 最近会话（target 控制范围时不兜底）。"""
+        target = str(self.cfg.get("diary_notify_target") or "").strip()
+        if target:
+            return target
+        target = str(self.cfg.get("event_target") or "").strip()
+        if target:
+            return target
+        if self._access_scope() == "target":
+            return ""
+        return str(self.state.get("last_umo") or "").strip()
+
+    async def _notify_diary_written(self, snap: dict[str, Any], date_key: str, body: str) -> None:
+        """把刚写完的日记推给主要通知人；发不出去只记日志，日记已经落盘了。"""
+        if not bool(self.cfg.get("diary_notify", True)):
+            return
+        target = self._diary_notify_target()
+        if not target:
+            logger.info(
+                "[world-journey] 日记没处推送：diary_notify_target / event_target / 最近会话都是空的。"
+            )
+            return
+        place = snap.get("place") if isinstance(snap.get("place"), dict) else {}
+        city = str((place or {}).get("name") or "").strip()
+        header = f"📖 {date_key} 的日记写好了" + (f"（{city}）" if city else "") + "："
+        try:
+            for chunk in self._split_text(f"{header}\n\n{body}"):
+                ok = await self.context.send_message(target, MessageChain([Plain(chunk)]))
+                if ok is False:
+                    raise RuntimeError(f"没有找到匹配的平台/会话：{target}")
+            logger.info("[world-journey] 日记已推送给主要通知人：%s", target)
+        except Exception as exc:
+            logger.warning("[world-journey] 日记推送失败（%s）：%s", date_key, exc)
 
     def _diary_instruction(self, snap: dict[str, Any]) -> str:
         lines = [
@@ -599,11 +666,17 @@ class WorldJourneyPlugin(Star):
         return [text[i:i + size] for i in range(0, len(text), size)]
 
     # ---------------- 命令 ----------------
+    _HELP_TOKENS = {"help", "h", "?", "？", "帮助", "用法", "怎么用"}
+
     @filter.command("journey", alias={"旅行", "她在哪", "今日计划", "行程"})
     async def journey(self, event: AstrMessageEvent):
-        """她此刻在哪、那边几点、今天剩下怎么过、今晚住哪、这一趟花了多少。"""
+        """她此刻在哪、那边几点、今天剩下怎么过、今晚住哪、这一趟花了多少；/journey help 看全部指令。"""
         if not self._access_ok(event):
             self._deny_access(event)
+            return
+        arg = self._command_arg(event)
+        if arg.lower() in self._HELP_TOKENS:
+            yield event.plain_result(self._render_help())
             return
         try:
             await self._ensure_ready()
@@ -696,6 +769,75 @@ class WorldJourneyPlugin(Star):
             tail = f"还剩 {left} 元" if left >= 0 else f"已经超了 {-left} 元"
             return f"这一趟花了 {spent} 元 / 预算 {budget} 元，{tail}"
         return f"这一趟花了 {spent} 元（没设预算上限）"
+
+    # ---------------- /jy 简写与指令帮助 ----------------
+    #: `/jy <子命令>` → 挂在这个类上的方法名。参数原样转给对应 /journey_* 命令。
+    _JY_SUBS = {
+        "diary": "journey_diary",
+        "note": "journey_note",
+        "stats": "journey_stats",
+        "draw": "journey_draw",
+        "depart": "journey_depart",
+        "photo": "journey_photo",
+        "sync": "journey_sync",
+        "debug": "journey_debug",
+        "reset": "journey_reset",
+        "update": "journey_update",
+    }
+
+    @filter.command("jy")
+    async def jy(self, event: AstrMessageEvent):
+        """简写指令：/jy 等同 /journey；/jy diary 7 等同 /journey_diary 7；/jy help 看全部指令。"""
+        if not self._access_ok(event):
+            self._deny_access(event)
+            return
+        arg = self._command_arg(event)
+        if not arg:
+            event.set_extra("world_journey_arg_override", "")
+            async for out in self.journey(event):
+                yield out
+            return
+        head, _, rest = arg.partition(" ")
+        head = head.strip().lower()
+        if head in self._HELP_TOKENS:
+            yield event.plain_result(self._render_help())
+            return
+        attr = self._JY_SUBS.get(head)
+        if attr is None:
+            yield event.plain_result(
+                f"没有这个子命令：{head}。"
+                "可以用 /jy diary、/jy note、/jy photo 等；完整列表发 /jy help。"
+            )
+            return
+        handler = getattr(self, attr)
+        # 子命令内部用 _command_arg 取参；把「<子命令>」剥掉后按覆盖值传入。
+        event.set_extra("world_journey_arg_override", rest.strip())
+        async for out in handler(event):
+            yield out
+
+    @staticmethod
+    def _render_help() -> str:
+        """/journey help 与 /jy help 的输出；和 README 的命令表保持一致。"""
+        return "\n".join([
+            "大肥鱼环游世界 · 可用指令：",
+            "",
+            "/journey（别名 /旅行 /她在哪 /今日计划 /行程；简写 /jy）",
+            "　她此刻在哪、那边几点、今天剩下怎么过、今晚住哪、这一趟花了多少",
+            "/journey help（或 /jy help）　本指令列表",
+            "/journey_depart（别名 /让她出发；/jy depart）　手动让她出发 [管理员]",
+            "/journey_photo（别名 /旅行照片；/jy photo）　现在拍一张，出图后自动发",
+            "/journey_diary [7|2026-11|2026-11-02]（/jy diary …）　读最近几天 / 某个月 / 某一天日记",
+            "/journey_note [all|N]（别名 /旅行笔记；/jy note …）　读全部或最近 N 篇日记（默认 1）",
+            "/journey_stats（别名 /旅行统计；/jy stats）　走了多少天、去过多少城、日记存在哪",
+            "/journey_draw 成都 [理由]（/jy draw …）　记下想去的地方",
+            "/journey_sync（/jy sync）　把她的钟拉回真实时间",
+            "/journey_debug（/jy debug）　诊断：版本、sidecar、数据目录 [管理员]",
+            "/journey_reset confirm（/jy reset confirm）　重置旅行数据 [管理员]",
+            "/journey_update [latest|版本]（/jy update …）　从 npm 更新上游源码，成功附更新日志 [管理员，需在配置打开 allow_upstream_update]",
+            "",
+            "[管理员] 的命令默认只限管理员（admin_only_controls 可关）；",
+            "控制范围 access_scope=target 时，只有「主动消息发给谁」的会话能用以上指令。",
+        ])
 
     @filter.command("journey_depart", alias={"让她出发"})
     async def journey_depart(self, event: AstrMessageEvent):
@@ -912,6 +1054,10 @@ class WorldJourneyPlugin(Star):
             f"最后 seq：{self.state.get('last_seq', 0)}",
             f"最后会话：{self.state.get('last_umo') or '（无）'}",
             f"主动消息：{'开' if self.cfg.get('proactive_enabled') else '关'}",
+            f"生图画风：{self.cfg.get('image_style') or '（留空=真实旅行照片）'}",
+            f"提示词模板：{self._template_source()}",
+            f"空镜套模板：{'开' if self.cfg.get('image_prompt_for_scene', True) else '关'}",
+            f"汇报配图：{self.cfg.get('report_image_mode') or 'off'}",
         ]
         with contextlib.suppress(Exception):
             health = await self.bridge.health()
@@ -985,10 +1131,54 @@ class WorldJourneyPlugin(Star):
         if result.get("upToDate"):
             yield event.plain_result(f"已经是最新：{result.get('version')}，没有重启。")
             return
-        yield event.plain_result(
+        note = self._changelog_slice(
+            str(result.get("oldVersion") or ""), str(result.get("version") or "")
+        )
+        head = (
             f"已更新到上游 {result.get('version')}（旧版 {result.get('oldVersion') or '无'}），"
             "工具已重新注册。"
         )
+        if note:
+            old_v = str(result.get("oldVersion") or "")
+            span = f"{old_v} → {result.get('version')}" if old_v and old_v != "无" else str(result.get("version"))
+            head += f"\n\n更新内容（{span}）：\n{note}"
+        for chunk in self._split_text(head):
+            yield event.plain_result(chunk)
+
+    _CHANGELOG_MAX = 2500
+
+    def _changelog_slice(self, old_version: str, new_version: str) -> str:
+        """从上游 CHANGELOG.md 截取「旧版 → 新版」的更新段落；读不到或没收录就返回空串。
+
+        CHANGELOG 从新到旧排列，每节以 `## <版本号>` 开头：取新版那一节起、到旧版那一节前。
+        旧版没收录在日志里（跨度太长或首次记录）时保守只截新版一节，不瞎猜范围。
+        """
+        new_version = (new_version or "").lstrip("vV").strip()
+        old_version = (old_version or "").lstrip("vV").strip()
+        if not new_version:
+            return ""
+        try:
+            text = (RAW_DIR / "CHANGELOG.md").read_text(encoding="utf-8-sig")
+        except OSError:
+            return ""
+        hits = [
+            (m.start(), m.group(1))
+            for m in re.finditer(r"^##\s*\[?v?(\d+\.\d+\.\d+)[^\n]*$", text, re.M)
+        ]
+        new_idx = next((i for i, (_, ver) in enumerate(hits) if ver == new_version), None)
+        if new_idx is None:
+            return ""
+        old_idx = next(
+            (i for i in range(new_idx + 1, len(hits)) if hits[i][1] == old_version), None
+        )
+        if old_idx is not None:
+            end = hits[old_idx][0]
+        else:
+            end = hits[new_idx + 1][0] if new_idx + 1 < len(hits) else len(text)
+        chunk = text[hits[new_idx][0]:end].strip()
+        if len(chunk) > self._CHANGELOG_MAX:
+            chunk = chunk[: self._CHANGELOG_MAX].rstrip() + "\n…（中间省略；全文见 raw/CHANGELOG.md）"
+        return chunk
 
     # ---------------- 上游更新 ----------------
     async def _update_upstream(self, version: str) -> dict[str, Any]:
@@ -1172,6 +1362,9 @@ class WorldJourneyPlugin(Star):
             return False
 
     def _command_arg(self, event: AstrMessageEvent) -> str:
+        override = event.get_extra("world_journey_arg_override")
+        if isinstance(override, str):
+            return override.strip()
         text = str(getattr(event, "message_str", "") or "").strip()
         parts = text.split(maxsplit=1)
         return parts[1].strip() if len(parts) > 1 else ""

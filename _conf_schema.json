@@ -96,6 +96,19 @@
     "default": "23:00",
     "hint": "她当地时间的 HH:MM（24 小时制）。到点当天还没写，就让她写一篇；留空关闭自动写。"
   },
+  "diary_notify": {
+    "description": "写完日记推送给主要通知人",
+    "type": "bool",
+    "default": true,
+    "hint": "自动日记写好后，把正文发给「日记主要通知人」；推送失败只写日志，日记照常落盘。"
+  },
+  "diary_notify_target": {
+    "description": "日记主要通知人",
+    "type": "string",
+    "default": "",
+    "_special": "umo",
+    "hint": "选一个会话；留空则沿用「主动消息发给谁」（event_target），再空用最近和机器人说话的会话（target 控制范围时不兜底）。"
+  },
   "amap_key": {
     "description": "高德密钥",
     "type": "string",
@@ -125,7 +138,25 @@
     "description": "画面风格",
     "type": "string",
     "default": "",
-    "hint": "留空真实旅行照片；none = 不指定风格。"
+    "hint": "对所有出图生效：相册照片、/journey_photo、主动汇报配图。留空真实旅行照片；none = 不指定风格。想固定二次元就填「动漫画风」。"
+  },
+  "image_prompt_template": {
+    "description": "生图提示词模板",
+    "type": "text",
+    "default": "一张自拍照片：{subject}在画面里，手机前置镜头近距离自拍，脸和上半身清晰，眼睛看着镜头，表情自然。\n画风：{style}\n时间：{time}（{clock}）。\n背景：{scene}\n参考图是{subject}的长相参考：保持五官、脸型、发型、肤色、年龄和气质一致；不要换脸，不要变成陌生人，不要照搬参考图的背景和衣服；按上面的画风绘制，不要自行改成真人照片。\n画面里只有{subject}一个人，没有文字、水印、边框。",
+    "hint": "开自拍时所有出图（含主动汇报配图）都用它。可用 {scene}、{subject}、{style}（画面风格）、{time}（时段，如「黄昏」）、{clock}（当地时间，如「18:12」）；留空回退旧的 selfie_prompt，再空就用内置默认。别在模板里写死「真实照片质感」——那会盖掉「画面风格」。"
+  },
+  "image_prompt_scene_template": {
+    "description": "空镜提示词模板",
+    "type": "text",
+    "default": "画风：{style}\n{scene}\n时间：{time}（{clock}）。\n画面里没有人物，没有文字，没有水印，没有边框。",
+    "hint": "只在「生图必须含自拍」关着时用（不带参考图的纯空镜）。留空用内置默认。务必保留「画面里没有人物」这句，否则风景照里会被塞进陌生人。"
+  },
+  "image_prompt_for_scene": {
+    "description": "空镜也套用生图模板",
+    "type": "bool",
+    "default": true,
+    "hint": "关掉就回到旧行为：空镜只用上游原话（写实旅行照片 / 画面风格前缀），模板不参与。"
   },
   "selfie_enabled": {
     "description": "生图必须含自拍",
@@ -158,10 +189,10 @@
     "hint": "提示词里的 {subject}，例如「她本人」「大肥鱼」。"
   },
   "selfie_prompt": {
-    "description": "自拍提示词模板",
+    "description": "自拍提示词模板（旧字段）",
     "type": "text",
-    "default": "一张自拍照片：{subject}在画面里，手机前置镜头近距离自拍，脸和上半身清晰，眼睛看着镜头，表情自然。\n时间：{time}（{clock}）。\n背景：{scene}\n参考图是{subject}的长相参考：保持五官、脸型、发型、肤色、年龄和气质一致；不要换脸，不要变成陌生人，不要照搬参考图的背景和衣服。\n真实手机自拍质感，自然光，轻微手持感；画面里只有{subject}一个人，没有文字、水印、边框。",
-    "hint": "默认就是内置模板；留空保存会自动回填默认模板。可用 {scene}、{subject}、{time}（时段描述，如「黄昏」）、{clock}（当地时间，如「18:12」）；模板里没写 {time}/{clock} 时时间会自动补在末尾。"
+    "default": "",
+    "hint": "已由「生图提示词模板」接管，留空即可。旧配置里填过且「生图提示词模板」为空时，仍按这里的内容生效；两者都空则用内置默认。可用占位符同「生图提示词模板」。"
   },
   "selfie_api": {
     "description": "自拍接口地址",
@@ -267,7 +298,7 @@
       "always",
       "probability"
     ],
-    "hint": "always = 每条主动汇报都生成一张自拍；probability = 按概率。用 selfie 配置出图，失败只发文字。"
+    "hint": "always = 每条主动汇报都生成一张自拍；probability = 按概率。配图和 /journey_photo 用同一套场景提示词（含画面风格）+ 生图提示词模板，需要打开 selfie_enabled；失败只发文字。"
   },
   "report_image_probability": {
     "description": "汇报配图概率",

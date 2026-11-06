@@ -1,11 +1,11 @@
 // adapter/cli.ts
 import { parseArgs } from "node:util";
-import { resolve, join as join10 } from "node:path";
+import { resolve, join as join11 } from "node:path";
 import { writeFileSync as writeFileSync4 } from "node:fs";
 
 // adapter/bridge.ts
-import { existsSync as existsSync7, readFileSync as readFileSync6 } from "node:fs";
-import { dirname as dirname5, isAbsolute, join as join8 } from "node:path";
+import { existsSync as existsSync8, readFileSync as readFileSync6 } from "node:fs";
+import { dirname as dirname5, isAbsolute, join as join9 } from "node:path";
 
 // adapter/raw.ts
 import { existsSync } from "node:fs";
@@ -243,13 +243,13 @@ var EventLog = class {
   }
   loadTail() {
     if (!existsSync4(this.file)) return;
-    let text2;
+    let text3;
     try {
-      text2 = readFileSync3(this.file, "utf8");
+      text3 = readFileSync3(this.file, "utf8");
     } catch {
       return;
     }
-    const lines = text2.split("\n").filter((line) => line.trim()).slice(-MEMORY_LIMIT);
+    const lines = text3.split("\n").filter((line) => line.trim()).slice(-MEMORY_LIMIT);
     for (const line of lines) {
       try {
         const raw = JSON.parse(line);
@@ -452,8 +452,8 @@ function findPromptFile(explicit) {
 }
 function readPromptFile(explicit) {
   const path = findPromptFile(explicit);
-  const text2 = readFileSync5(path, "utf8");
-  return { text: text2, path, hadActionSection: text2.includes(ACTION_HEADING) };
+  const text3 = readFileSync5(path, "utf8");
+  return { text: text3, path, hadActionSection: text3.includes(ACTION_HEADING) };
 }
 function stripActionSection(template) {
   const index = template.indexOf(ACTION_HEADING);
@@ -464,8 +464,8 @@ ${CHAT_FOOTER}`,
     stripped: index >= 0
   };
 }
-function sanitizePlatformText(text2) {
-  return text2.replace(/（装了一起听歌可用\s*music_pick）/g, "").replace(/music_pick/g, "").replace(/[ \t]+\n/g, "\n");
+function sanitizePlatformText(text3) {
+  return text3.replace(/（装了一起听歌可用\s*music_pick）/g, "").replace(/music_pick/g, "").replace(/[ \t]+\n/g, "\n");
 }
 var VAR_RE = /\{\{\s*([\w.]+)\s*\}\}/g;
 function buildPrompt(vars, promptPath) {
@@ -476,13 +476,13 @@ function buildPrompt(vars, promptPath) {
     warnings.push("\u4E0A\u6E38 ENV_PROMPT.md \u91CC\u6CA1\u627E\u5230\u300C### \u8EAB\u4F53\u600E\u4E48\u52A8\u300D\uFF0C\u52A8\u4F5C\u6BB5\u53EF\u80FD\u6539\u540D\u4E86\uFF1B\u8BF7\u68C0\u67E5 adapter/prompt.ts\u3002");
   }
   const missing = /* @__PURE__ */ new Set();
-  const text2 = stripped.text.replace(VAR_RE, (whole, name) => {
+  const text3 = stripped.text.replace(VAR_RE, (whole, name) => {
     if (Object.prototype.hasOwnProperty.call(vars, name)) return vars[name] ?? "";
     missing.add(name);
     return whole;
   });
   return {
-    text: sanitizePlatformText(text2),
+    text: sanitizePlatformText(text3),
     missing: [...missing],
     path: file.path,
     warnings
@@ -494,11 +494,23 @@ import { readFile } from "node:fs/promises";
 import { extname as extname2 } from "node:path";
 var DEFAULT_PROMPT = [
   "\u4E00\u5F20\u81EA\u62CD\u7167\u7247\uFF1A{subject}\u5728\u753B\u9762\u91CC\uFF0C\u624B\u673A\u524D\u7F6E\u955C\u5934\u8FD1\u8DDD\u79BB\u81EA\u62CD\uFF0C\u8138\u548C\u4E0A\u534A\u8EAB\u6E05\u6670\uFF0C\u773C\u775B\u770B\u7740\u955C\u5934\uFF0C\u8868\u60C5\u81EA\u7136\u3002",
+  "\u753B\u98CE\uFF1A{style}",
   "\u65F6\u95F4\uFF1A{time}\uFF08{clock}\uFF09\u3002",
   "\u80CC\u666F\uFF1A{scene}",
-  "\u53C2\u8003\u56FE\u662F{subject}\u7684\u957F\u76F8\u53C2\u8003\uFF1A\u4FDD\u6301\u4E94\u5B98\u3001\u8138\u578B\u3001\u53D1\u578B\u3001\u80A4\u8272\u3001\u5E74\u9F84\u548C\u6C14\u8D28\u4E00\u81F4\uFF1B\u4E0D\u8981\u6362\u8138\uFF0C\u4E0D\u8981\u53D8\u6210\u964C\u751F\u4EBA\uFF0C\u4E0D\u8981\u7167\u642C\u53C2\u8003\u56FE\u7684\u80CC\u666F\u548C\u8863\u670D\u3002",
-  "\u771F\u5B9E\u624B\u673A\u81EA\u62CD\u8D28\u611F\uFF0C\u81EA\u7136\u5149\uFF0C\u8F7B\u5FAE\u624B\u6301\u611F\uFF1B\u753B\u9762\u91CC\u53EA\u6709{subject}\u4E00\u4E2A\u4EBA\uFF0C\u6CA1\u6709\u6587\u5B57\u3001\u6C34\u5370\u3001\u8FB9\u6846\u3002"
+  "\u53C2\u8003\u56FE\u662F{subject}\u7684\u957F\u76F8\u53C2\u8003\uFF1A\u4FDD\u6301\u4E94\u5B98\u3001\u8138\u578B\u3001\u53D1\u578B\u3001\u80A4\u8272\u3001\u5E74\u9F84\u548C\u6C14\u8D28\u4E00\u81F4\uFF1B\u4E0D\u8981\u6362\u8138\uFF0C\u4E0D\u8981\u53D8\u6210\u964C\u751F\u4EBA\uFF0C\u4E0D\u8981\u7167\u642C\u53C2\u8003\u56FE\u7684\u80CC\u666F\u548C\u8863\u670D\uFF1B\u6309\u4E0A\u9762\u7684\u753B\u98CE\u7ED8\u5236\uFF0C\u4E0D\u8981\u81EA\u884C\u6539\u6210\u771F\u4EBA\u7167\u7247\u3002",
+  "\u753B\u9762\u91CC\u53EA\u6709{subject}\u4E00\u4E2A\u4EBA\uFF0C\u6CA1\u6709\u6587\u5B57\u3001\u6C34\u5370\u3001\u8FB9\u6846\u3002"
 ].join("\n");
+var DEFAULT_SCENE_PROMPT = [
+  "\u753B\u98CE\uFF1A{style}",
+  "{scene}",
+  "\u65F6\u95F4\uFF1A{time}\uFF08{clock}\uFF09\u3002",
+  "\u753B\u9762\u91CC\u6CA1\u6709\u4EBA\u7269\uFF0C\u6CA1\u6709\u6587\u5B57\uFF0C\u6CA1\u6709\u6C34\u5370\uFF0C\u6CA1\u6709\u8FB9\u6846\u3002"
+].join("\n");
+var EMPTY_STYLE_LINE = /^[^：:\n]*：\s*$/;
+function normalizeStyle(style) {
+  const raw = (style ?? "").trim();
+  return raw.toLowerCase() === "none" ? "" : raw;
+}
 var NO_PEOPLE = /画面里没有人物[^。]*。/g;
 var PASSERBY = /视角像路过的人[^。]*。/g;
 var FILM = /胶片质感[^。]*。/g;
@@ -548,8 +560,8 @@ function systemClock() {
 }
 function labelFor(minutes) {
   let label = TIME_OF_DAY[0][1];
-  for (const [start, text2] of TIME_OF_DAY) {
-    if (minutes >= start) label = text2;
+  for (const [start, text3] of TIME_OF_DAY) {
+    if (minutes >= start) label = text3;
     else break;
   }
   return label;
@@ -558,22 +570,35 @@ function describeTime(clock) {
   const parsed = parseClock(clock) ?? systemClock();
   return { label: labelFor(parsed.minutes), clock: parsed.text };
 }
-function buildSelfiePrompt(original, opts, clock) {
-  const scene = original.replace(/^一张真实旅行照片：/, "").replace(NO_PEOPLE, "").replace(PASSERBY, "").replace(FILM, "").replace(/\s+/g, " ").trim();
+function renderImagePrompt(original, opts, clock) {
+  const style = normalizeStyle(opts.style);
+  const lead = style ? `${style}\uFF1A` : "";
+  const scene = original.replace(/^一张真实旅行照片：/, "").replace(NO_PEOPLE, "").replace(PASSERBY, "").replace(FILM, "").replace(/\s+/g, " ").trim().replace(new RegExp(`^${escapePattern(lead)}`), "");
   const subject = opts.subject.trim() || "\u5979\u672C\u4EBA";
   const template = opts.promptTemplate.trim() || DEFAULT_PROMPT;
   const time = describeTime(clock);
-  let prompt = template.replaceAll("{scene}", scene).replaceAll("{subject}", subject).replaceAll("{time}", time.label).replaceAll("{clock}", time.clock);
+  const hasStyle = template.includes("{style}");
+  const styled = template.split("\n").map((line) => line.includes("{style}") ? line.replaceAll("{style}", style) : line).filter((line) => !(style === "" && EMPTY_STYLE_LINE.test(line.trim()))).join("\n");
+  let prompt = styled.replaceAll("{scene}", scene).replaceAll("{subject}", subject).replaceAll("{time}", time.label).replaceAll("{clock}", time.clock);
   if (!template.includes("{time}") && !template.includes("{clock}")) {
     prompt += `
 \u65F6\u95F4\uFF1A${time.label}\uFF08${time.clock}\uFF09\u3002`;
   }
+  if (style && !hasStyle) {
+    prompt += `
+\u753B\u98CE\uFF1A${style}`;
+  }
   return prompt.trim();
+}
+var DEFAULT_SCENE_TEMPLATE = DEFAULT_SCENE_PROMPT;
+function escapePattern(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function installPhotoProxy(opts, log, fetchImpl = globalThis.fetch) {
   const models = modelListOf(opts.models);
   const selfie = opts.selfie?.enabled === true ? opts.selfie : null;
-  if (!selfie && models.length < 2) return { uninstall: () => {
+  const scene = opts.scene && opts.scene.enabled === true && opts.scene.promptTemplate.trim() ? opts.scene : null;
+  if (!selfie && !scene && models.length < 2) return { uninstall: () => {
   }, fetch: fetchImpl };
   if (selfie && selfie.references.length === 0) {
     log.warn("\u81EA\u62CD\u5DF2\u5F00\u542F\uFF0C\u4F46\u6CA1\u6709\u53C2\u8003\u56FE\uFF1B\u7167\u7247\u4F1A\u5931\u8D25\u800C\u4E0D\u662F\u9000\u56DE\u7A7A\u955C\u3002\u8BF7\u5728\u63D2\u4EF6\u914D\u7F6E\u91CC\u4E0A\u4F20 selfie_reference\u3002");
@@ -586,17 +611,19 @@ function installPhotoProxy(opts, log, fetchImpl = globalThis.fetch) {
     const prompt = typeof body?.prompt === "string" ? body.prompt : "";
     if (!body || !prompt) return original(input, init);
     const selfieModels = selfie ? modelListOf(selfie.model) : [];
-    const candidates = selfie ? selfieModels.length ? selfieModels : [stringOf(body.model).trim() || "gpt-image-1"] : models;
-    if (candidates.length === 0) return original(input, init);
+    const fallbackModel = stringOf(body.model).trim() || "gpt-image-1";
+    const candidates = selfie ? selfieModels.length ? selfieModels : [fallbackModel] : models.length ? models : [fallbackModel];
     let reference = null;
     let clock;
-    if (selfie) {
-      try {
-        reference = await loadSelfieReference(selfie, original);
-      } catch (e) {
-        const message2 = errText(e);
-        log.warn(`\u81EA\u62CD\u751F\u56FE\u5931\u8D25\uFF1A${message2}`);
-        return jsonResponse({ error: { message: message2 } }, 502);
+    if (selfie || scene) {
+      if (selfie) {
+        try {
+          reference = await loadSelfieReference(selfie, original);
+        } catch (e) {
+          const message2 = errText(e);
+          log.warn(`\u81EA\u62CD\u751F\u56FE\u5931\u8D25\uFF1A${message2}`);
+          return jsonResponse({ error: { message: message2 } }, 502);
+        }
       }
       try {
         clock = await opts.clock?.() ?? void 0;
@@ -604,6 +631,12 @@ function installPhotoProxy(opts, log, fetchImpl = globalThis.fetch) {
         clock = void 0;
       }
     }
+    const scenePrompt = scene ? renderImagePrompt(prompt, {
+      subject: scene.subject ?? "",
+      promptTemplate: scene.promptTemplate,
+      style: scene.style
+    }, clock) : prompt;
+    if (scene && !selfie) logPrompt(log, "scene", scenePrompt);
     const failures = [];
     for (const model of candidates) {
       try {
@@ -611,7 +644,13 @@ function installPhotoProxy(opts, log, fetchImpl = globalThis.fetch) {
           const result = await generateSelfieWithModel(selfie, model, body, prompt, original, log, reference, clock);
           return jsonResponse({ data: [result] });
         }
-        const res = await replayWithModel(original, url, init ?? {}, body, model);
+        const res = await replayWithModel(
+          original,
+          url,
+          init ?? {},
+          scene ? { ...body, prompt: scenePrompt } : body,
+          model
+        );
         if (res.ok) return res;
         const detail = await peekError(res);
         if (shouldKeepResponse(res.status, detail)) return res;
@@ -673,7 +712,8 @@ async function generateSelfieBytes(prompt, opts, fetchImpl = globalThis.fetch, l
 async function generateSelfieWithModel(opts, model, upstreamBody, originalPrompt, fetchImpl, log, reference, clock) {
   const api = opts.api.trim().replace(/\/+$/, "");
   if (!api) throw new Error("\u81EA\u62CD\u751F\u56FE\u63A5\u53E3\u6CA1\u586B\uFF08selfie_api / image_api\uFF09");
-  const prompt = buildSelfiePrompt(originalPrompt, opts, clock);
+  const prompt = renderImagePrompt(originalPrompt, opts, clock);
+  logPrompt(log, `selfie-${opts.mode}`, prompt);
   const size = opts.size.trim() || stringOf(upstreamBody.size) || "1024x1024";
   const headers = {};
   if (opts.key.trim()) headers.authorization = `Bearer ${opts.key.trim()}`;
@@ -751,14 +791,14 @@ function shouldKeepResponse(status, detail) {
 }
 async function peekError(res) {
   try {
-    const text2 = (await res.clone().text()).slice(0, 500);
+    const text3 = (await res.clone().text()).slice(0, 500);
     try {
-      const o = JSON.parse(text2);
+      const o = JSON.parse(text3);
       const msg = typeof o.error === "object" && o.error ? o.error.message : o.message ?? o.error;
       if (typeof msg === "string" && msg.trim()) return msg.trim().slice(0, 200);
     } catch {
     }
-    return text2.replace(/\s+/g, " ").trim().slice(0, 200);
+    return text3.replace(/\s+/g, " ").trim().slice(0, 200);
   } catch {
     return "";
   }
@@ -900,12 +940,12 @@ async function postJson(url, headers, payload, fetchImpl) {
   });
 }
 async function readJson(res, log) {
-  const text2 = await res.text();
-  log?.info(`\u81EA\u62CD\u54CD\u5E94\u4F53\uFF1A${text2.length} \u5B57\u7B26`);
+  const text3 = await res.text();
+  log?.info(`\u81EA\u62CD\u54CD\u5E94\u4F53\uFF1A${text3.length} \u5B57\u7B26`);
   try {
-    return JSON.parse(text2);
+    return JSON.parse(text3);
   } catch {
-    throw new Error(`\u81EA\u62CD\u63A5\u53E3\u8FD4\u56DE\u7684\u4E0D\u662F JSON\uFF08HTTP ${res.status}\uFF09\uFF1A${text2.slice(0, 200)}`);
+    throw new Error(`\u81EA\u62CD\u63A5\u53E3\u8FD4\u56DE\u7684\u4E0D\u662F JSON\uFF08HTTP ${res.status}\uFF09\uFF1A${text3.slice(0, 200)}`);
   }
 }
 function logSelfieImage(image, log) {
@@ -921,6 +961,9 @@ function logSelfieImage(image, log) {
     }
     log.info(`\u81EA\u62CD\u56FE\uFF1Aurl\uFF0Chost=${host}`);
   }
+}
+function logPrompt(log, kind, prompt) {
+  log.info(`\u751F\u56FE\u63D0\u793A\u8BCD\uFF08${kind}\uFF09\uFF1A${prompt.replace(/\s+/g, " ").slice(0, 400)}`);
 }
 function jsonResponse(value, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -949,12 +992,83 @@ function stringOf(value) {
   return typeof value === "string" ? value : "";
 }
 
+// adapter/photo-prompt.ts
+import { existsSync as existsSync7 } from "node:fs";
+import { join as join8 } from "node:path";
+import { pathToFileURL as pathToFileURL2 } from "node:url";
+var cached = null;
+function loadPhotoHelpers(root = rawRoot()) {
+  if (cached) return cached;
+  cached = importPhotoHelpers(root);
+  return cached;
+}
+async function importPhotoHelpers(root) {
+  const path = join8(root, "src", "photo.ts");
+  if (!existsSync7(path)) throw new Error(`\u4E0A\u6E38\u7F3A\u5C11 ${path}\uFF0C\u7528\u4E0D\u4E86\u573A\u666F\u63CF\u8FF0`);
+  const mod = await import(pathToFileURL2(path).href);
+  const photoPrompt = mod.photoPrompt;
+  const spotFromBeat = mod.spotFromBeat;
+  if (typeof photoPrompt !== "function" || typeof spotFromBeat !== "function") {
+    throw new Error("\u4E0A\u6E38 photo.ts \u6CA1\u6709\u5BFC\u51FA photoPrompt/spotFromBeat\uFF1B\u8BF7\u68C0\u67E5 raw \u66F4\u65B0");
+  }
+  return {
+    photoPrompt,
+    spotFromBeat
+  };
+}
+async function buildScenePrompt(snapshot, style) {
+  const helpers = await loadPhotoHelpers();
+  const hour = hourOf(snapshot.clock);
+  const leg = asRecord(snapshot.leg);
+  const onRoad = snapshot.mode === "traveling" && leg !== null;
+  const place = asRecord(snapshot.place);
+  const city = onRoad ? text(leg?.to) : text(place?.name);
+  if (!city) throw new Error("\u5FEB\u7167\u91CC\u6CA1\u6709\u53EF\u7528\u7684\u57CE\u5E02\u540D");
+  const spot = onRoad ? "" : spotFromTimeline(snapshot, hour, helpers.spotFromBeat);
+  const weather = text(snapshot.weather);
+  const feeling = text(snapshot.feeling);
+  return helpers.photoPrompt({
+    city,
+    ...spot ? { spot } : {},
+    hour,
+    ...weather ? { weather } : {},
+    ...feeling ? { feel: feeling } : {},
+    style,
+    onRoad,
+    ...onRoad ? { mode: text(leg?.mode) } : {}
+  }).trim();
+}
+function hourOf(clock) {
+  const m = /^(\d{1,2}):/.exec(text(clock));
+  const hour = m ? Number(m[1]) : Number.NaN;
+  return Number.isFinite(hour) && hour >= 0 && hour <= 23 ? hour : 10;
+}
+function spotFromTimeline(snapshot, hour, spotFromBeat) {
+  const items = Array.isArray(snapshot.timeline) ? snapshot.timeline : [];
+  let spot = "";
+  for (const item of items) {
+    const row = asRecord(item);
+    if (!row) continue;
+    if (text(row.kind) !== "activity") continue;
+    if (row.past !== true && hourOf(row.at) > hour) continue;
+    const candidate = spotFromBeat(text(row.what));
+    if (candidate) spot = candidate;
+  }
+  return spot;
+}
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function text(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 // adapter/bridge.ts
-var BRIDGE_VERSION = true ? "1.0.4" : "dev";
+var BRIDGE_VERSION = true ? "1.0.5" : "dev";
 function readLocalNowPlaying(dataDir) {
   try {
-    const path = join8(dataDir, "nowplaying.json");
-    if (!existsSync7(path)) return null;
+    const path = join9(dataDir, "nowplaying.json");
+    if (!existsSync8(path)) return null;
     const raw = JSON.parse(readFileSync6(path, "utf8").replace(/^\uFEFF/, ""));
     const title = typeof raw.title === "string" ? raw.title.trim() : "";
     if (!title) return null;
@@ -989,7 +1103,7 @@ var RawBridge = class {
     this.opts = opts;
     this.dataDir = opts.dataDir;
     this.rawDir = opts.rawDir ?? rawRoot();
-    this.configPath = opts.configPath ?? join8(opts.dataDir, "engine-config.json");
+    this.configPath = opts.configPath ?? join9(opts.dataDir, "engine-config.json");
     this.promptPath = opts.promptPath;
     this.events = new EventLog(opts.dataDir);
     this.media = new LocalMediaStore(opts.dataDir);
@@ -1088,7 +1202,7 @@ var RawBridge = class {
     return this.w().envPromptVars();
   }
   prompt() {
-    return buildPrompt(this.promptVars(), this.promptPath ?? join8(this.rawDir, "ENV_PROMPT.md"));
+    return buildPrompt(this.promptVars(), this.promptPath ?? join9(this.rawDir, "ENV_PROMPT.md"));
   }
   tools() {
     return this.w().tools();
@@ -1169,8 +1283,43 @@ var RawBridge = class {
       size: stringOf2(cfg.selfieSize),
       imageField: stringOf2(cfg.selfieImageField) || "image_url",
       subject: stringOf2(cfg.selfieSubject) || "\u5979\u672C\u4EBA",
-      promptTemplate: stringOf2(cfg.selfiePrompt)
+      promptTemplate: this.selfieTemplate(cfg),
+      // 画风从这条路径起也生效：模板里的 {style} 就是它。
+      style: this.imageStyle()
     };
+  }
+  /**
+   * 自拍模板的取值顺序：新字段 `imagePromptTemplate` → 旧字段 `selfiePrompt` → 空串。
+   *
+   * 空串交给 `selfie.ts` 回落到内置默认模板；老用户只填过 `selfie_prompt` 的，
+   * 内容原样生效，不要求他重填一遍。
+   */
+  selfieTemplate(cfg) {
+    const fresh = stringOf2(cfg.imagePromptTemplate).trim();
+    if (fresh) return fresh;
+    return stringOf2(cfg.selfiePrompt).trim();
+  }
+  /**
+   * 空镜（没开自拍）的模板配置。
+   *
+   * 单独一套模板而不是复用自拍那套：自拍模板里有「画面里只有她一个人」，
+   * 套到风景上就把空镜画成了人像 —— 上游空镜的纪律恰恰是「画面里没有人物」。
+   * `image_prompt_for_scene=false` 时返回 null，回到「上游发什么就发什么」的老行为。
+   */
+  sceneOptions() {
+    const cfg = this.cfg;
+    if (!cfg || cfg.imagePromptForScene === false) return null;
+    return {
+      enabled: true,
+      promptTemplate: stringOf2(cfg.imagePromptSceneTemplate).trim() || DEFAULT_SCENE_TEMPLATE,
+      style: this.imageStyle(),
+      subject: stringOf2(cfg.selfieSubject)
+    };
+  }
+  /** 用户填的「画面风格」（`image_style`）；`none` 与空串在模板渲染时才区分。 */
+  imageStyle() {
+    const cfg = this.cfg;
+    return cfg ? stringOf2(cfg.imageStyle).trim() : "";
   }
   /**
    * 「生图模型名」列表。上游只认一个字符串，所以列表由套壳维护：
@@ -1186,8 +1335,9 @@ var RawBridge = class {
     this.uninstallSelfie = null;
     const selfie = this.selfieOptions();
     const models = this.imageModels();
-    if (!selfie && models.length === 0) return;
-    const proxy = installPhotoProxy({ models, selfie, clock: () => this.localClock() }, this.log);
+    const scene = selfie ? null : this.sceneOptions();
+    if (!selfie && !scene && models.length === 0) return;
+    const proxy = installPhotoProxy({ models, selfie, scene, clock: () => this.localClock() }, this.log);
     this.uninstallSelfie = proxy.uninstall;
     this.proxyFetch = proxy.fetch;
     if (selfie) {
@@ -1198,6 +1348,11 @@ var RawBridge = class {
     if (models.length > 1) {
       this.log.info(`\u751F\u56FE\u6A21\u578B\u964D\u7EA7\u5DF2\u542F\u7528\uFF1A${models.join(" \u2192 ")}`);
     }
+    const cfg = this.cfg;
+    const templateSource = cfg && stringOf2(cfg.imagePromptTemplate).trim() ? "image_prompt_template" : cfg && stringOf2(cfg.selfiePrompt).trim() ? "selfie_prompt\uFF08\u65E7\u5B57\u6BB5\uFF09" : "\u5185\u7F6E\u9ED8\u8BA4";
+    this.log.info(
+      `\u751F\u56FE\u63D0\u793A\u8BCD\uFF1A\u753B\u98CE\u300C${this.imageStyle() || "\uFF08\u7559\u7A7A=\u771F\u5B9E\u65C5\u884C\u7167\u7247\uFF09"}\u300D\uFF5C\u6A21\u677F ${templateSource}\uFF5C\u7A7A\u955C\u5957\u6A21\u677F ${scene ? "\u5F00" : "\u5173"}`
+    );
   }
   /**
    * 她所在城市的当地时间 `HH:MM`（来自 raw 的 UI 快照）。
@@ -1215,14 +1370,31 @@ var RawBridge = class {
       return null;
     }
   }
-  /** 主动汇报附图：用汇报文本 + 当前状态生成，不写上游 photo 事件。 */
+  /**
+   * 主动汇报附图：和 `/journey_photo`、自动拍照用**同一个场景描述**（上游
+   * `photoPrompt()`，含用户的「画面风格」），末尾再附一行她此刻在做什么。
+   * 不写上游 photo 事件、不进相册。
+   *
+   * 以前这里直接拿汇报文本当提示词，`image_style` 一个字都不参与 —— 同一个人设，
+   * 相册里是动漫、主动汇报里是真人照片。上游导入失败或快照缺字段时退回旧写法，
+   * 汇报照发，绝不因为配图链路挂掉而丢整条消息。
+   */
   async reportImage(scene) {
     const options = this.selfieOptions();
     if (!options) return null;
-    const reportText = (scene ?? "").trim();
-    const prompt = reportText ? `${reportText}
+    const reportText = (scene ?? "").trim().slice(0, 120);
+    const fallback = reportText ? `${reportText}
 
 \u6B64\u523B\uFF1A${this.now()}` : this.now();
+    let prompt = fallback;
+    try {
+      const base = await buildScenePrompt(await this.snapshot(), this.imageStyle());
+      prompt = reportText ? `${base}
+
+\u5979\u6B64\u523B\uFF1A${reportText}` : base;
+    } catch (e) {
+      this.log.warn(`\u6C47\u62A5\u914D\u56FE\u9000\u56DE\u65E7\u63D0\u793A\u8BCD\uFF1A${e instanceof Error ? e.message : String(e)}`);
+    }
     try {
       const clock = await this.localClock();
       const image = await generateSelfieBytes(prompt, options, this.proxyFetch, this.log, clock ?? void 0);
@@ -1236,10 +1408,10 @@ var RawBridge = class {
     if (/^(https?:|data:)/i.test(ref) || isAbsolute(ref)) return ref;
     const bases = [dirname5(this.rawDir), this.dataDir, process.cwd()];
     for (const base of bases) {
-      const candidate = join8(base, ref);
-      if (existsSync7(candidate)) return candidate;
+      const candidate = join9(base, ref);
+      if (existsSync8(candidate)) return candidate;
     }
-    return join8(dirname5(this.rawDir), ref);
+    return join9(dirname5(this.rawDir), ref);
   }
   w() {
     if (!this.world) throw new Error("raw \u8FD8\u6CA1\u542F\u52A8");
@@ -1275,7 +1447,7 @@ function modelListOf2(value) {
 
 // adapter/sim.ts
 import { rmSync, writeFileSync as writeFileSync3 } from "node:fs";
-import { join as join9 } from "node:path";
+import { join as join10 } from "node:path";
 
 // adapter/compat/private.ts
 var TIMER_KEYS = ["timer", "bootTimer", "wishTimer"];
@@ -1309,7 +1481,7 @@ async function runSimulation(opts) {
   const from = opts.from ?? /* @__PURE__ */ new Date();
   const offline = opts.offline ?? true;
   if (opts.reset) {
-    for (const name of RESET_FILES) rmSync(join9(opts.dataDir, name), { force: true });
+    for (const name of RESET_FILES) rmSync(join10(opts.dataDir, name), { force: true });
   }
   const collected = [];
   let now = new Date(from.getTime());
@@ -1374,7 +1546,7 @@ async function runSimulation(opts) {
       elapsedMs: Date.now() - started
     };
     try {
-      writeFileSync3(join9(opts.dataDir, "sim-report.json"), `${JSON.stringify(report, null, 2)}
+      writeFileSync3(join10(opts.dataDir, "sim-report.json"), `${JSON.stringify(report, null, 2)}
 `, "utf8");
     } catch {
     }
@@ -1481,7 +1653,7 @@ async function handle(req, res, opts) {
     return;
   }
   if (method === "GET" && path === "/api/now") {
-    text(res, 200, opts.bridge.now());
+    text2(res, 200, opts.bridge.now());
     return;
   }
   if (method === "GET" && path === "/api/events") {
@@ -1504,10 +1676,10 @@ async function handle(req, res, opts) {
   if (method === "GET" && path === "/api/prompt") {
     const prompt = opts.bridge.prompt();
     if (prompt.missing.length) {
-      text(res, 500, `\u63D0\u793A\u8BCD\u7F3A\u5C11\u53D8\u91CF\uFF1A${prompt.missing.join("\u3001")}`);
+      text2(res, 500, `\u63D0\u793A\u8BCD\u7F3A\u5C11\u53D8\u91CF\uFF1A${prompt.missing.join("\u3001")}`);
       return;
     }
-    text(res, 200, prompt.text, "text/markdown; charset=utf-8");
+    text2(res, 200, prompt.text, "text/markdown; charset=utf-8");
     return;
   }
   if (method === "POST" && path.startsWith("/api/tools/")) {
@@ -1578,7 +1750,7 @@ function json(res, status, value) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
   res.end(JSON.stringify(value));
 }
-function text(res, status, body, type = "text/plain; charset=utf-8") {
+function text2(res, status, body, type = "text/plain; charset=utf-8") {
   res.writeHead(status, { "content-type": type, "cache-control": "no-store" });
   res.end(body);
 }
@@ -1715,7 +1887,7 @@ async function cmdPrompt(common, values) {
       console.error(`[prompt] \u6A21\u677F\u91CC\u6709\u672A\u8D4B\u503C\u7684\u53D8\u91CF\uFF1A${prompt.missing.join("\u3001")}`);
       process.exitCode = 1;
     }
-    const out = resolve(typeof values.out === "string" ? values.out : join10(common.dataDir, "prompt.md"));
+    const out = resolve(typeof values.out === "string" ? values.out : join11(common.dataDir, "prompt.md"));
     writeFileSync4(out, prompt.text, "utf8");
     console.log(`[prompt] \u5DF2\u5199\u5165 ${out}`);
     console.log(`[prompt] \u6A21\u677F ${prompt.path}`);
@@ -1752,7 +1924,7 @@ async function cmdSim(dataDir, values) {
   if (report.duplicateKeys.length) {
     console.log(`[sim] \u26A0 \u91CD\u590D\u4E8B\u4EF6 key\uFF1A${report.duplicateKeys.slice(0, 8).join("\u3001")}`);
   }
-  console.log(`[sim] \u62A5\u544A\uFF1A${join10(dataDir, "sim-report.json")}`);
+  console.log(`[sim] \u62A5\u544A\uFF1A${join11(dataDir, "sim-report.json")}`);
 }
 function cmdCheck() {
   const info = readUpstreamInfo();

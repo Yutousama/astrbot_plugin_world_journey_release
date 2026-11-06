@@ -5,7 +5,7 @@
 - 发布仓库：<https://github.com/Yutousama/astrbot_plugin_world_journey_release>
 - 开发仓库：<https://github.com/Yutousama/astrbot_plugin_world_journey>
 - 插件作者：**yutou**
-- 版本：**v1.0.4**
+- 版本：**v1.0.5**
 
 旅行引擎来自上游 [`coopani-world-journey`](https://www.npmjs.com/package/coopani-world-journey)
 （原作者 Mr.Q，MIT），感谢原项目；本插件只做 AstrBot 接入，上游源码可在插件内从 npm 更新
@@ -54,17 +54,22 @@ astrbot_plugin_world_journey/
 
 | 命令 | 说明 |
 |---|---|
-| `/journey` `/旅行` `/她在哪` `/今日计划` `/行程` | 她此刻在哪、今天剩下怎么过、今晚住哪、这一趟花了多少；末尾带日记天数和今天是否已写 |
-| `/journey_depart` `/让她出发` | 手动让她出发（默认需要管理员） |
-| `/journey_photo` `/旅行照片` | 开始拍一张；出图后自动发，不阻塞命令 |
-| `/journey_note [all\|N]` `/旅行笔记` | 读全部 / 最近 N 篇日记（默认 1），最新在前，并显示总篇数 |
-| `/journey_diary [7\|2026-11\|2026-11-02]` | 读最近几天 / 某个月目录 / 某一天全文 |
-| `/journey_stats` `/旅行统计` | 走了多少天、去过多少城、日记在哪 |
-| `/journey_draw 成都 一首歌` | 记下想去的地方 |
-| `/journey_sync` | 把她的钟拉回真实时间 |
-| `/journey_debug` | 诊断：上游版本、sidecar、数据目录、最后 seq |
-| `/journey_reset confirm` | 重置旅行：清空行程、事件、照片、日记和旅行记忆（管理员） |
-| `/journey_update [latest\|0.5.25]` | 从 npm 更新上游源码（管理员；失败自动回滚） |
+| `/journey` `/旅行` `/她在哪` `/今日计划` `/行程` `/jy` | 她此刻在哪、今天剩下怎么过、今晚住哪、这一趟花了多少；末尾带日记天数和今天是否已写 |
+| `/journey help` `/jy help` | 列出全部可用指令（别名 `/旅行 帮助` 等也可） |
+| `/journey_depart` `/让她出发` `/jy depart` | 手动让她出发（默认需要管理员） |
+| `/journey_photo` `/旅行照片` `/jy photo` | 开始拍一张；出图后自动发，不阻塞命令 |
+| `/journey_note [all\|N]` `/旅行笔记` `/jy note …` | 读全部 / 最近 N 篇日记（默认 1），最新在前，并显示总篇数 |
+| `/journey_diary [7\|2026-11\|2026-11-02]` `/jy diary …` | 读最近几天 / 某个月目录 / 某一天全文 |
+| `/journey_stats` `/旅行统计` `/jy stats` | 走了多少天、去过多少城、日记在哪 |
+| `/journey_draw 成都 一首歌` `/jy draw …` | 记下想去的地方 |
+| `/journey_sync` `/jy sync` | 把她的钟拉回真实时间 |
+| `/journey_debug` `/jy debug` | 诊断：上游版本、sidecar、数据目录、最后 seq |
+| `/journey_reset confirm` `/jy reset confirm` | 重置旅行：清空行程、事件、照片、日记和旅行记忆（管理员） |
+| `/journey_update [latest\|0.5.25]` `/jy update …` | 从 npm 更新上游源码（管理员；失败自动回滚；成功输出旧版→新版的更新日志） |
+
+`/jy` 是通用简写：`/jy` 单独使用等同 `/journey`，`/jy <子命令> [参数]` 等同对应的
+`/journey_<子命令>`（diary / note / stats / draw / depart / photo / sync / debug / reset / update），
+权限和参数行为与完整命令一致。
 
 ## 控制范围
 
@@ -109,7 +114,7 @@ astrbot_plugin_world_journey/
 
 重置只有管理员能执行，且必须带 `confirm`；`allow_reset=false` 可完全关闭。
 
-## 自拍参考图
+## 生图提示词与自拍参考图
 
 上游原本只拍空镜。开启 `selfie_enabled` 后，插件会在 sidecar 里套一层生图代理：
 
@@ -136,18 +141,37 @@ astrbot_plugin_world_journey/
 
 `selfie_api` / `selfie_key` / `selfie_model` 留空则沿用 `image_api` / `image_key` /
 `image_model`。`image_model` 是**列表**：按顺序尝试，前一个报错就换下一个，全都失败才放弃；
-`selfie_model` 留空时自拍也走这条降级链。`selfie_prompt` 可自定义，支持：
+`selfie_model` 留空时自拍也走这条降级链。
 
-- `{scene}`：上游风景提示词；
+### 提示词模板
+
+模板是**全局**的，不再只属于自拍这一条路径：
+
+| 配置 | 什么时候用它 | 留空时 |
+| --- | --- | --- |
+| `image_prompt_template` | 开着自拍的所有出图：相册照片、`/journey_photo`、主动汇报配图 | 回退旧 `selfie_prompt`，再空用内置默认 |
+| `image_prompt_scene_template` | 关着自拍的纯空镜（不带参考图） | 用内置默认（守住「画面里没有人物」） |
+| `image_prompt_for_scene` | 空镜要不要套模板，默认开 | 关掉 = 空镜只用上游原话 |
+| `selfie_prompt` | 旧字段，兼容保留 | 新字段填了就以此为准 |
+
+占位符：
+
+- `{scene}`：上游的场景描述（城市/景点/光线/天气/体感）；
 - `{subject}`：主体称呼（默认「她本人」）；
+- `{style}`：**画面风格**，取自 `image_style`；留空或填 `none` 时整行自动删掉，不留「画风：」残骸；
 - `{time}`：**时段描述词**，如「清晨」「正午」「黄昏」「暮色」「入夜」「午夜前」；
 - `{clock}`：**她所在城市的当地时间**，`HH:MM`，如 `18:12`。
 
 时段按她当地的分钟数分段，从午夜到午夜前共 23 档（凌晨、黎明前、拂晓、黎明、破晓、晨光初现、
 清晨、早晨、上午、上午将尽、临近正午、正午、午后、下午、下午将尽、傍晚、黄昏、暮色、
 入夜、夜晚、深夜、午夜前等），比「早/中/晚」细，专门给光线用。
-模板里没写 `{time}` / `{clock}` 的老模板，升级后会自动把时间补在末尾，不用改配置。
-默认显示完整内置模板，留空保存会自动回填。
+老模板没写 `{style}` / `{time}` / `{clock}` 的，升级后自动补在末尾，不用改配置。
+
+画风就填 `image_style`（例如「动漫画风」）。内置模板里**没有**写死照片质感，出图是动漫还是真人
+由这一个配置决定；一旦自己在模板里写「真实手机自拍质感」「胶片颗粒」这类句子，就会盖掉 `image_style`。
+
+`/journey_debug` 会显示当前画风、模板实际取自哪一处、空镜套模板开没开。sidecar 日志
+（`engine/logs/sidecar.log`）里每次生图都会记一行 `生图提示词（…）：…`，那是真正发给接口的原文。
 
 注意：
 
@@ -175,7 +199,21 @@ frontmatter + 正文。插件侧有两条读法：
 - 生成失败/写入失败会隔 10 分钟重试；留空 `diary_write_time` 可关闭自动写。
 - 只会写「当天」：如果到点时插件不在线，错过就等第二天，不做补写。
 - 自动日记的正文要求不带标题、日期、Markdown 和列表；`/journey_note` 输出前还会再清一遍。
-- 写完后不会主动发消息；`/journey` 末尾会显示「日记 N 天，今天已经写了/还没写」。
+- `/journey` 末尾会显示「日记 N 天，今天已经写了/还没写」。
+
+### 写完日记的推送
+
+自动日记落盘成功后，插件会把当天正文（带日期和所在城市）推送给**主要通知人**：
+
+| 配置 | 默认 | 行为 |
+|---|---|---|
+| `diary_notify` | 开 | 关掉就完全不推送 |
+| `diary_notify_target` | 空 | 主要通知人（会话）；留空依次沿用 `event_target`、最近会话 |
+
+- 目标解析顺序：`diary_notify_target` → `event_target` → 最近和机器人说话的会话
+  （`access_scope=target` 时不用最近会话兜底）；三者都没有就只写日志跳过。
+- 推送失败（如找不到会话）只写日志，不影响日记落盘，也不会重试推送。
+- 只针对自动日记；模型通过 `journey_diary_write` 工具写的、以及历史日记不做推送。
 
 ## 工具
 
@@ -206,7 +244,9 @@ LLM 工具由引擎自动注册（0.5.25 是 6 个，0.5.16 是 5 个，以实�
 3. 解压到插件目录的 staging；
 4. 停事件泵 → 停 sidecar → 备份旧 `raw/` → 换新 `raw/`；
 5. 重启 sidecar、重新注册工具、恢复事件泵；
-6. 新版本起不来则**自动回滚**到旧 `raw/` 并重启。
+6. 新版本起不来则**自动回滚**到旧 `raw/` 并重启；
+7. 更新成功后自动附上**更新日志**：从新版 `raw/CHANGELOG.md` 截取旧版 → 新版之间的段落
+   一起发出（旧版没收录时只截新版一节；超长截断并提示看全文；日志读不到不影响更新本身）。
 
 `allow_upstream_update` **默认关闭**，要用时才在配置里打开（理由见「安全说明」）；
 `upstream_package`、`upstream_registry` 可换源；`upstream_source` 只是展示页面。
@@ -251,7 +291,9 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | `always` | 每条主动汇报都生成一张自拍附在文字后 |
 | `probability` | 按 `report_image_probability` 概率生成 |
 
-- 用当前 `selfie_*` 配置出图（当前是 `native` 万相），提示词基于**这条汇报的文本** + 当前状态；
+- 提示词和 `/journey_photo` **同一套来源**：先由上游生成场景描述（城市/景点/光线/天气/
+  体感 + `image_style` 画风），末尾附一行「她此刻：这条汇报的文字」（截到 120 字），
+  再套 `image_prompt_template`；需要打开 `selfie_enabled`（配图走自拍那条链路）；
 - 不经过上游 `journey.photo`，所以不会和相册照片重复；
 - 事件本身已有照片时跳过；
 - 生图失败只发文字，并写 `sidecar.log`；
@@ -273,6 +315,8 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 |---|---|---|
 | `node_path` | 空 | Node 22.7+ 路径 |
 | `diary_write_time` | `23:00` | 她当地时间自动写日记；`HH:MM`，留空关闭 |
+| `diary_notify` | 开 | 自动日记写完后推送给主要通知人 |
+| `diary_notify_target` | 空 | 日记主要通知人（会话）；留空沿用 `event_target`，再空用最近会话 |
 | `inject_prompt` | 开 | 注入旅行状态 |
 | `inject_recent_reports` | 开 | 把最近汇报注入汇报会话 |
 | `recent_report_count` | 5 | 保留几条汇报 |
@@ -292,7 +336,10 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | `selfie_reference` | 空 | 自拍参考图（WebUI 上传） |
 | `selfie_reference_path` | 空 | 参考图绝对路径/URL（可选） |
 | `selfie_subject` | `她本人` | 提示词主体 |
-| `selfie_prompt` | 内置模板 | 自拍模板，可用 `{scene}`/`{subject}`/`{time}`/`{clock}`；留空保存回填 |
+| `image_prompt_template` | 内置模板 | 出镜生图模板（含汇报配图），可用 `{scene}`/`{subject}`/`{style}`/`{time}`/`{clock}` |
+| `image_prompt_scene_template` | 内置模板 | 空镜模板（没开自拍时用），守住「画面里没有人物」 |
+| `image_prompt_for_scene` | 开 | 关掉后空镜只用上游原话，不套模板 |
+| `selfie_prompt` | 空 | 旧字段：`image_prompt_template` 留空时才生效 |
 | `selfie_mode` | `edit` | `edit` / `generation` / `native` |
 | `selfie_native_url` | 空 | native 完整端点，留空自动拼 |
 | `selfie_api/key/model` | 空 | 留空沿用生图配置（`image_model` 列表按顺序降级） |
@@ -347,6 +394,10 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 - **重载后没有孤儿进程**：插件用真实 `node.exe` + 心跳 + terminate；如果还有，查 `journey_debug`。
 - **主动消息没来**：确认 `proactive_enabled`、`event_target`（或先和机器人说话）、以及 sidecar 已就绪。
 - **照片没拍**：配 `image_api`/`image_key`/`image_model`；失败原因会回在 `/journey_photo`。
+- **出图画风和 `image_style` 不一致**：先跑 `/journey_debug` 看「生图画风 / 提示词模板 / 空镜套模板」
+  三行，再到 `logs/sidecar.log` 找 `生图提示词（…）：…`，那行就是发给接口的原文。
+  原文里没有你的画风，说明模板被自定义文本盖住了（例如旧 `selfie_prompt` 里写死了「真实手机自拍质感」）；
+  原文里有画风还是出真人，那就是底模不听指令，换 `image_model`。
 - **拍照报 `Server disconnected`**：sidecar 在拍照途中被重载/重启（改配置、更新插件、重载插件）。
   等几秒重试；v0.6.5 起客户端最多等 150s，不会用 10s 默认超时误杀慢图。
 - **拍照很慢**：v0.6.6 起 `/journey_photo` 立刻返回“开始拍了”，后台等图；出图后自动发。
