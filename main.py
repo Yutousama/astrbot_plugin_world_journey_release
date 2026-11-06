@@ -284,18 +284,31 @@ class WorldJourneyPlugin(Star):
             logger.warning("[world-journey] 提示词注入失败：%s", exc)
             return False
 
+    def _recent_report_limit(self) -> int:
+        """保留/注入几条汇报；0 = 关闭。
+
+        旧「inject_recent_reports」开关已并进「recent_report_count」（0 = 关）。
+        老配置里显式把旧开关选成关的仍然优先 —— schema 删掉后 AstrBot 不会清除
+        配置文件里的旧值，`cfg.get` 照样读得到，行为不翻转。
+        """
+        if self.cfg.get("inject_recent_reports") is False:
+            return 0
+        raw = self.cfg.get("recent_report_count", 5)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = 5
+        return max(0, min(20, value))
+
     def _recent_reports_block(self, event: AstrMessageEvent) -> str:
-        if not bool(self.cfg.get("inject_recent_reports", True)):
+        count = self._recent_report_limit()
+        if count <= 0:
             return ""
         if not self._recent_reports or not self._report_target:
             return ""
         umo = str(getattr(event, "unified_msg_origin", "") or "").strip()
         if umo != self._report_target:
             return ""
-        try:
-            count = max(1, min(20, int(self.cfg.get("recent_report_count", 5) or 5)))
-        except (TypeError, ValueError):
-            count = 5
         reports = self._recent_reports[-count:]
         return "最近发给这个会话的旅行汇报（从旧到新）：\n" + "\n".join(f"- {r}" for r in reports)
 
@@ -649,13 +662,11 @@ class WorldJourneyPlugin(Star):
             snippet = text.strip()
             if len(snippet) > 1200:
                 snippet = snippet[:1200] + "…"
-            if not self._recent_reports or self._recent_reports[-1] != snippet:
-                self._recent_reports.append(snippet)
-            try:
-                limit = max(1, min(20, int(self.cfg.get("recent_report_count", 5) or 5)))
-            except (TypeError, ValueError):
-                limit = 5
-            self._recent_reports = self._recent_reports[-limit:]
+            limit = self._recent_report_limit()
+            if limit > 0:
+                if not self._recent_reports or self._recent_reports[-1] != snippet:
+                    self._recent_reports.append(snippet)
+                self._recent_reports = self._recent_reports[-limit:]
             self._report_target = target
 
     @staticmethod

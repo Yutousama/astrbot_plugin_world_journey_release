@@ -1,217 +1,155 @@
 {
   "enabled": {
-    "description": "启用旅行引擎",
+    "description": "【基本】启用旅行引擎",
     "type": "bool",
     "default": true
   },
-  "node_path": {
-    "description": "Node 可执行文件路径",
-    "type": "string",
-    "default": "",
-    "hint": "留空自动从 PATH 找 node。需要 Node 22.7+；可填 C:\\Program Files\\nodejs\\node.exe 或所在目录。"
-  },
-  "allow_upstream_update": {
-    "description": "允许从 npm 更新上游源码（默认关闭）",
-    "type": "bool",
-    "default": false,
-    "hint": "打开后 /journey_update 会从 npm 下载 tarball 覆盖插件目录下的 raw/（sha512 校验，失败自动回滚，只有管理员能执行），等于允许运行时替换代码；确认信任上游来源再开。"
-  },
-  "upstream_package": {
-    "description": "上游 npm 包名",
-    "type": "string",
-    "default": "coopani-world-journey"
-  },
-  "upstream_registry": {
-    "description": "npm registry",
-    "type": "string",
-    "default": "https://registry.npmjs.org"
-  },
-  "upstream_source": {
-    "description": "上游源码页面（展示用）",
-    "type": "string",
-    "default": "https://www.npmjs.com/package/coopani-world-journey"
-  },
-  "update_show_changelog": {
-    "description": "更新成功时附上更新日志",
-    "type": "bool",
-    "default": false,
-    "hint": "打开后 /journey_update 成功时从新版 raw/CHANGELOG.md 截取「旧版 → 新版」的段落一起发出；关闭只报版本和结果。旧版没收录时只截新版一节，超长会截断。"
-  },
   "home_city": {
-    "description": "从哪儿出发",
+    "description": "【旅行】从哪儿出发",
     "type": "string",
     "default": "",
     "hint": "城市名：兰州、西安、成都。留空按日记最近城市或兰州兜底。"
   },
   "speed": {
-    "description": "时间倍速",
+    "description": "【旅行】时间倍速",
     "type": "float",
     "default": 1.0,
     "hint": "1 = 真实速度；24 = 一天压成一小时。建议 1 或 4，别长期 240。"
   },
   "beat_gap": {
-    "description": "路上消息间隔",
+    "description": "【旅行】路上消息间隔（小时）",
     "type": "float",
     "default": 2.0,
-    "hint": "路上隔多久冒一句话（小时）。0 = 一路安静，只在出发和到站开口。"
+    "hint": "她路上隔多久冒一句话。0 = 一路安静，只在出发和到站开口。和「主动消息·路上事件的合并窗口」是两回事：那管壳层多久发一条。"
   },
   "rest_days": {
-    "description": "回家后歇几天",
+    "description": "【旅行】回家后歇几天",
     "type": "int",
     "default": 3,
     "hint": "0 = 当天就能再走。"
   },
-  "ask_before_depart": {
-    "description": "出门等你点头",
-    "type": "bool",
-    "default": false,
-    "hint": "打开后她不会自己走，需要 /journey_depart。"
-  },
   "max_trip_weeks": {
-    "description": "一次最多在外几周",
+    "description": "【旅行】一次最多在外几周",
     "type": "int",
     "default": 26,
     "hint": "到点强制回家。按周算：1 周 = 7 天，想试三五天的短途也配得上（旧版按月，配置会自动换算成周）。"
   },
+  "ask_before_depart": {
+    "description": "【旅行】出门等你点头",
+    "type": "bool",
+    "default": false,
+    "hint": "打开后她不会自己走，也不会自己应别人的邀约；会在会话里发一张「点头卡片」等你回 /journey_yes（或 /jy yes），不想去就 /journey_no。"
+  },
   "with_user": {
-    "description": "叙事上让你同行",
+    "description": "【旅行】叙事上让你同行",
     "type": "bool",
     "default": false,
     "hint": "日记里会用「我们」；她并不知道你此刻在做什么。"
   },
   "money_enabled": {
-    "description": "记花销",
+    "description": "【旅行】记花销",
     "type": "bool",
     "default": false
   },
   "budget": {
-    "description": "预算",
+    "description": "【旅行】预算",
     "type": "int",
     "default": 0,
     "hint": "0 = 不限；只在记花销打开时有效。"
   },
   "has_license": {
-    "description": "她有驾照",
+    "description": "【旅行】她有驾照",
     "type": "bool",
     "default": true,
     "hint": "关掉后她永远不自驾、不租车，城里城际都只坐公共交通。"
   },
   "meet_url": {
-    "description": "碰面服务器地址",
+    "description": "【旅行】碰面服务器地址",
     "type": "string",
     "default": "",
     "hint": "填了她在同城能看到别的桌宠（作者公共池：https://cooppetsjourney.top），到站会提一句这一带还有谁、可以约着一起走。留空＝照常旅行，只是永远一个人。可见的是宠物名/城市/时段，24 小时过期，只能看不能聊。"
   },
-  "memory_dir": {
-    "description": "日记/旅行记忆保存位置",
-    "type": "string",
-    "default": "",
-    "hint": "留空跟插件数据目录；填同步盘则日记和旅行记忆跟着人走。state.json 永远只在本机。"
-  },
-  "diary_write_time": {
-    "description": "自动写日记时间",
-    "type": "string",
-    "default": "23:00",
-    "hint": "她当地时间的 HH:MM（24 小时制）。到点当天还没写，就让她写一篇；留空关闭自动写。"
-  },
-  "diary_notify": {
-    "description": "写完日记推送给主要通知人",
-    "type": "bool",
-    "default": true,
-    "hint": "自动日记写好后，把正文发给「日记主要通知人」；推送失败只写日志，日记照常落盘。"
-  },
-  "diary_notify_target": {
-    "description": "日记主要通知人",
-    "type": "string",
-    "default": "",
-    "_special": "umo",
-    "hint": "选一个会话；留空则沿用「主动消息发给谁」（event_target），再空用最近和机器人说话的会话（target 控制范围时不兜底）。"
-  },
   "amap_key": {
-    "description": "高德密钥",
+    "description": "【旅行】高德密钥",
     "type": "string",
     "default": "",
     "secret": true,
     "hint": "留空自动用 Open-Meteo；填了天气更准，也能查真酒店名。"
   },
-  "image_api": {
-    "description": "生图接口地址",
+  "diary_write_time": {
+    "description": "【日记】自动写日记时间",
+    "type": "string",
+    "default": "23:00",
+    "hint": "她当地时间的 HH:MM（24 小时制）。到点当天还没写，就让她写一篇；留空关闭自动写。"
+  },
+  "diary_notify": {
+    "description": "【日记】写完日记推送给主要通知人",
+    "type": "bool",
+    "default": true,
+    "hint": "自动日记写好后，把正文发给「日记主要通知人」；推送失败只写日志，日记照常落盘。"
+  },
+  "diary_notify_target": {
+    "description": "【日记】日记主要通知人",
     "type": "string",
     "default": "",
-    "hint": "OpenAI 兼容根地址，填到 /v1 为止。留空不拍照。"
+    "_special": "umo",
+    "hint": "选一个会话；留空则沿用「主动消息发给谁」（event_target），再空用最近和机器人说话的会话（target 控制范围时不兜底）。"
   },
-  "image_key": {
-    "description": "生图密钥",
+  "memory_dir": {
+    "description": "【数据】日记/旅行记忆保存位置",
     "type": "string",
     "default": "",
-    "secret": true
+    "hint": "留空跟插件数据目录；填同步盘则日记和旅行记忆跟着人走。state.json 永远只在本机。"
   },
-  "image_model": {
-    "description": "生图模型名",
-    "type": "list",
-    "default": [],
-    "hint": "按顺序填多个模型 ID：第一个报错就自动换下一个，全都失败才放弃。留空按 gpt-image-1 试。"
-  },
-  "image_style": {
-    "description": "画面风格",
+  "photo_dir": {
+    "description": "【数据】照片存放目录（可留空）",
     "type": "string",
     "default": "",
-    "hint": "对所有出图生效：相册照片、/journey_photo、主动汇报配图。留空真实旅行照片；none = 不指定风格。想固定二次元就填「动漫画风」。"
+    "hint": "留空＝插件数据目录。填绝对路径可和日记放同一个同步盘目录。"
   },
   "image_protocol": {
-    "description": "生图接口类型",
+    "description": "【生图】接口类型",
     "type": "string",
     "default": "openai",
     "options": [
       "openai",
       "comfyui"
     ],
-    "hint": "openai = 云端服务商（填到 /v1 为止）；comfyui = 本地 ComfyUI（image_api 填 http://127.0.0.1:8188）。选错不会报错、只会一直拍不出来。comfyui 下自拍套壳不生效（除非单独配 selfie_api 指向云端）。"
+    "hint": "openai = 云端服务商（地址填到 /v1 为止）；comfyui = 本地 ComfyUI（image_api 填 http://127.0.0.1:8188，并粘贴工作流）。选错不会报错、只会一直拍不出来。comfyui 下自拍套壳与汇报配图不生效（除非单独配 selfie_api 指向云端）。"
   },
-  "image_workflow": {
-    "description": "ComfyUI 工作流 JSON（仅 comfyui）",
-    "type": "text",
-    "default": "",
-    "hint": "在 ComfyUI 里「Save (API Format)」导出的那份，整段粘进来。协议选 comfyui 时必填；带 nodes/links 的界面格式提交不了。"
-  },
-  "image_prompt_node": {
-    "description": "ComfyUI 提示词节点 id（可留空）",
+  "image_api": {
+    "description": "【生图】接口地址",
     "type": "string",
     "default": "",
-    "hint": "workflow 里写画面描述的节点编号（如 6）。留空自动从正向采样链上找；找不准会明确报错，不会把描述写进负向节点。"
+    "hint": "OpenAI 兼容根地址，填到 /v1 为止；ComfyUI 填服务根地址。留空不拍照。"
   },
-  "comfy_negative": {
-    "description": "负向提示词（仅 ComfyUI）",
+  "image_key": {
+    "description": "【生图】密钥",
     "type": "string",
     "default": "",
-    "hint": "不想画面出现什么就写什么，如「rapeseed flowers, snow」。云端接口没有这个参数，填了不起作用。留空什么都不加。"
+    "secret": true,
+    "hint": "ComfyUI 通常留空。"
   },
-  "comfy_negative_node": {
-    "description": "负向提示词节点 id（可留空）",
+  "image_model": {
+    "description": "【生图】模型名（按顺序降级）",
+    "type": "list",
+    "default": [],
+    "hint": "按顺序填多个模型 ID：第一个报错就自动换下一个，全都失败才放弃。留空按 gpt-image-1 试。仅云端协议生效。"
+  },
+  "image_style": {
+    "description": "【生图】画面风格",
     "type": "string",
     "default": "",
-    "hint": "留空自动找（看哪个 CLIPTextEncode 被采样器的 negative 指着）。自动找不准时把节点编号填这儿。"
-  },
-  "image_timeout_sec": {
-    "description": "出图最多等几秒",
-    "type": "int",
-    "default": 0,
-    "hint": "0 = 默认（本地 ComfyUI 180 秒、云端 90 秒）。大图、多步、刚加载完大模型时填 300 或 600 多等一会儿——超时只是还没画完，不是坏了。"
-  },
-  "image_cast": {
-    "description": "照片里出不出人",
-    "type": "string",
-    "default": "",
-    "hint": "留空＝画面里没有人（拍她眼前的景）。想让照片里有她就写一段外貌描述（发型、衣服），要长相稳定得靠 LoRA。与「生图必须含自拍」是两条路，别指望这段替代参考图。"
+    "hint": "对所有出图生效：相册照片、/journey_photo、主动汇报配图。留空真实旅行照片；none = 不指定风格。想固定二次元就填「动漫画风」。"
   },
   "image_size": {
-    "description": "出图尺寸",
+    "description": "【生图】出图尺寸",
     "type": "string",
     "default": "",
-    "hint": "宽x高，如 1664x928（横 16:9）、1152x1536（竖 3:4）。留空＝1024x1024 方形。ComfyUI 会自动吸附到 8 的倍数；云端填了不支持的值会被拒。"
+    "hint": "宽x高，如 1664x928（横 16:9）、1152x1536（竖 3:4）。留空＝1024x1024 方形。ComfyUI 会自动吸附到 8 的倍数；云端填了不支持的值会被拒。自拍留空时也跟随这里。"
   },
   "image_watermark": {
-    "description": "「AI生成」水印处理",
+    "description": "【生图】「AI生成」水印处理",
     "type": "string",
     "default": "auto",
     "options": [
@@ -221,38 +159,74 @@
     ],
     "hint": "auto = 云端出的图裁掉底边一条、本地 ComfyUI 不动；off = 一律不裁；crop = 一律裁。裁的是底部 8%。"
   },
-  "photo_dir": {
-    "description": "照片存放目录（可留空）",
+  "image_timeout_sec": {
+    "description": "【生图】出图最多等几秒",
+    "type": "int",
+    "default": 0,
+    "hint": "0 = 默认（本地 ComfyUI 180 秒、云端 90 秒）。大图、多步、刚加载完大模型时填 300 或 600 多等一会儿——超时只是还没画完，不是坏了。/journey_photo 的等待上限自动跟随这里。"
+  },
+  "image_cast": {
+    "description": "【生图】照片里出不出人",
     "type": "string",
     "default": "",
-    "hint": "留空＝插件数据目录。填绝对路径可和日记放同一个同步盘目录。"
+    "hint": "留空＝画面里没有人（拍她眼前的景）。想让照片里有她就写一段外貌描述（发型、衣服），要长相稳定得靠 LoRA。与「自拍·生图必须含自拍」是两条路，别指望这段替代参考图。"
+  },
+  "image_workflow": {
+    "description": "【生图·ComfyUI】工作流 JSON",
+    "type": "text",
+    "default": "",
+    "hint": "在 ComfyUI 里「Save (API Format)」导出的那份，整段粘进来。协议选 comfyui 时必填；带 nodes/links 的界面格式提交不了。"
+  },
+  "image_prompt_node": {
+    "description": "【生图·ComfyUI】提示词节点 id（可留空）",
+    "type": "string",
+    "default": "",
+    "hint": "workflow 里写画面描述的节点编号（如 6）。留空自动从正向采样链上找；找不准会明确报错，不会把描述写进负向节点。"
+  },
+  "comfy_negative": {
+    "description": "【生图·ComfyUI】负向提示词",
+    "type": "string",
+    "default": "",
+    "hint": "不想画面出现什么就写什么，如「rapeseed flowers, snow」。云端接口没有这个参数，填了不起作用。留空什么都不加。"
+  },
+  "comfy_negative_node": {
+    "description": "【生图·ComfyUI】负向节点 id（可留空）",
+    "type": "string",
+    "default": "",
+    "hint": "留空自动找（看哪个 CLIPTextEncode 被采样器的 negative 指着）。自动找不准时把节点编号填这儿。"
   },
   "image_prompt_template": {
-    "description": "生图提示词模板",
+    "description": "【模板】生图提示词模板（出镜）",
     "type": "text",
     "default": "一张自拍照片：{subject}在画面里，手机前置镜头近距离自拍，脸和上半身清晰，眼睛看着镜头，表情自然。\n画风：{style}\n时间：{time}（{clock}）。\n背景：{scene}\n参考图是{subject}的长相参考：保持五官、脸型、发型、肤色、年龄和气质一致；不要换脸，不要变成陌生人，不要照搬参考图的背景和衣服；按上面的画风绘制，不要自行改成真人照片。\n画面里只有{subject}一个人，没有文字、水印、边框。",
     "hint": "开自拍时所有出图（含主动汇报配图）都用它。可用 {scene}、{subject}、{style}（画面风格）、{time}（时段，如「黄昏」）、{clock}（当地时间，如「18:12」）；留空回退旧的 selfie_prompt，再空就用内置默认。别在模板里写死「真实照片质感」——那会盖掉「画面风格」。"
   },
   "image_prompt_scene_template": {
-    "description": "空镜提示词模板",
+    "description": "【模板】空镜提示词模板",
     "type": "text",
     "default": "画风：{style}\n{scene}\n时间：{time}（{clock}）。\n画面里没有人物，没有文字，没有水印，没有边框。",
     "hint": "只在「生图必须含自拍」关着时用（不带参考图的纯空镜）。留空用内置默认。务必保留「画面里没有人物」这句，否则风景照里会被塞进陌生人。"
   },
   "image_prompt_for_scene": {
-    "description": "空镜也套用生图模板",
+    "description": "【模板】空镜也套用模板",
     "type": "bool",
     "default": true,
     "hint": "关掉就回到旧行为：空镜只用上游原话（写实旅行照片 / 画面风格前缀），模板不参与。"
   },
+  "selfie_prompt": {
+    "description": "【模板】自拍提示词模板（旧字段）",
+    "type": "text",
+    "default": "",
+    "hint": "已由「生图提示词模板」接管，留空即可。旧配置里填过且「生图提示词模板」为空时，仍按这里的内容生效；两者都空则用内置默认。可用占位符同「生图提示词模板」。"
+  },
   "selfie_enabled": {
-    "description": "生图必须含自拍",
+    "description": "【自拍】生图必须含自拍",
     "type": "bool",
     "default": false,
     "hint": "开启后所有照片改走自拍套壳：需要参考图；没有参考图时照片会失败，而不是退回空镜。"
   },
   "selfie_reference": {
-    "description": "自拍参考图",
+    "description": "【自拍】参考图",
     "type": "file",
     "default": [],
     "file_types": [
@@ -264,44 +238,38 @@
     "hint": "上传角色参考图（正脸清晰、无遮挡最好）。生图时作为 image-to-image 的参考，保持同一张脸。"
   },
   "selfie_reference_path": {
-    "description": "自拍参考图路径（可选）",
+    "description": "【自拍】参考图路径（可选）",
     "type": "string",
     "default": "",
     "hint": "不上传文件时，可直接填绝对路径或 http(s) URL；会追加到上传文件之后。"
   },
   "selfie_subject": {
-    "description": "自拍主体称呼",
+    "description": "【自拍】主体称呼",
     "type": "string",
     "default": "她本人",
     "hint": "提示词里的 {subject}，例如「她本人」「大肥鱼」。"
   },
-  "selfie_prompt": {
-    "description": "自拍提示词模板（旧字段）",
-    "type": "text",
-    "default": "",
-    "hint": "已由「生图提示词模板」接管，留空即可。旧配置里填过且「生图提示词模板」为空时，仍按这里的内容生效；两者都空则用内置默认。可用占位符同「生图提示词模板」。"
-  },
   "selfie_api": {
-    "description": "自拍接口地址",
+    "description": "【自拍】接口地址",
     "type": "string",
     "default": "",
-    "hint": "留空用 image_api；需要支持 /images/edits（edit 模式）或带 image_url 的 /images/generations。"
+    "hint": "留空用【生图】接口地址；需要支持 /images/edits（edit 模式）或带 image_url 的 /images/generations。生图协议选了 ComfyUI 时，这里必须单独指向云端，否则自拍整体停用。"
   },
   "selfie_key": {
-    "description": "自拍接口密钥",
+    "description": "【自拍】接口密钥",
     "type": "string",
     "default": "",
     "secret": true,
-    "hint": "留空用 image_key。"
+    "hint": "留空用【生图】密钥。"
   },
   "selfie_model": {
-    "description": "自拍模型名",
+    "description": "【自拍】模型名",
     "type": "string",
     "default": "",
-    "hint": "留空用「生图模型名」列表，按顺序降级。"
+    "hint": "留空用【生图】模型名列表，按顺序降级。"
   },
   "selfie_mode": {
-    "description": "自拍接口模式",
+    "description": "【自拍】接口模式",
     "type": "string",
     "default": "edit",
     "options": [
@@ -312,56 +280,38 @@
     "hint": "edit = /images/edits multipart；generation = OpenAI /images/generations 带 image_url；native = 阿里百炼万相原生 multimodal-generation（data URL）。"
   },
   "selfie_native_url": {
-    "description": "万相原生接口地址（native 模式）",
+    "description": "【自拍】万相原生接口地址（native 模式）",
     "type": "string",
     "default": "",
-    "hint": "留空从 selfie_api 的 origin 拼 /api/v1/services/aigc/multimodal-generation/generation；也可直接填完整 URL。"
+    "hint": "留空从自拍接口地址的 origin 拼 /api/v1/services/aigc/multimodal-generation/generation；也可直接填完整 URL。"
   },
   "selfie_image_field": {
-    "description": "generation 模式的图片字段",
+    "description": "【自拍】generation 模式的图片字段",
     "type": "string",
     "default": "image_url",
     "hint": "常用 image_url；有的中转站要 image。仅 generation 模式生效。"
   },
   "selfie_size": {
-    "description": "自拍尺寸",
+    "description": "【自拍】尺寸",
     "type": "string",
-    "default": "1024x1024",
-    "hint": "留空跟随上游；自拍用方图或竖图更像手机。"
-  },
-  "inject_prompt": {
-    "description": "把旅行状态注入 LLM 提示词",
-    "type": "bool",
-    "default": true,
-    "hint": "以临时 user 内容块注入，不改 system prompt、不写历史；关闭后模型不知道她在哪。"
-  },
-  "inject_recent_reports": {
-    "description": "把最近主动汇报注入主聊天提示词",
-    "type": "bool",
-    "default": true,
-    "hint": "只注入给收到汇报的那个会话，方便用户接着刚汇报的旅行话题聊。"
-  },
-  "recent_report_count": {
-    "description": "保留最近几条汇报",
-    "type": "int",
-    "default": 5,
-    "hint": "1-20 条；太多会占 token。"
+    "default": "",
+    "hint": "留空跟随【生图】出图尺寸；两个都留空＝不发尺寸（云端默认方形）。自拍用方图或竖图更像手机。"
   },
   "proactive_enabled": {
-    "description": "主动发旅行事件",
+    "description": "【主动消息】主动发旅行事件",
     "type": "bool",
     "default": false,
-    "hint": "打开后会把 journey.depart/beat/photo 发到 event_target 或最近会话。"
+    "hint": "打开后会把 journey.depart/beat/photo/ask 发到 event_target 或最近会话。"
   },
   "event_target": {
-    "description": "主动消息发给谁 / 控制目标",
+    "description": "【主动消息】发给谁 / 控制目标",
     "type": "string",
     "default": "",
     "_special": "umo",
     "hint": "选一个会话；留空则用最近跟机器人说话的人/群。控制范围选 target 时，这里也是唯一允许使用插件的会话。"
   },
   "access_scope": {
-    "description": "控制范围",
+    "description": "【主动消息】控制范围",
     "type": "string",
     "default": "all",
     "options": [
@@ -371,13 +321,13 @@
     "hint": "all = 所有好友/群组可用；target = 只有「主动消息发给谁」选中的个人/群组可用（命令、工具、提示词注入都限制）。target 但未选目标时全部拒绝。"
   },
   "debounce_seconds": {
-    "description": "路上事件的合并窗口",
+    "description": "【主动消息】路上事件的合并窗口（秒）",
     "type": "int",
     "default": 60,
-    "hint": "journey.beat/road/photo 在这段时间内只发最新一条。"
+    "hint": "journey.beat/road/photo 在这段时间内只发最新一条。和「旅行·路上消息间隔」是两回事：那管她多久想一句，这里管壳层多久发一条。"
   },
   "report_image_mode": {
-    "description": "主动汇报配图",
+    "description": "【主动消息】汇报配图",
     "type": "string",
     "default": "off",
     "options": [
@@ -385,55 +335,96 @@
       "always",
       "probability"
     ],
-    "hint": "always = 每条主动汇报都生成一张自拍；probability = 按概率。配图和 /journey_photo 用同一套场景提示词（含画面风格）+ 生图提示词模板，需要打开 selfie_enabled；失败只发文字。"
+    "hint": "always = 每条主动汇报都生成一张自拍；probability = 按概率。配图和 /journey_photo 用同一套场景提示词（含画面风格）+ 生图提示词模板，需要打开自拍开关；失败只发文字。"
   },
   "report_image_probability": {
-    "description": "汇报配图概率",
+    "description": "【主动消息】汇报配图概率",
     "type": "float",
     "default": 0.3,
-    "hint": "0.3 = 约 30%；只在 report_image_mode=probability 时生效。"
+    "hint": "0.3 = 约 30%；只在配图模式 = probability 时生效。"
+  },
+  "inject_prompt": {
+    "description": "【聊天注入】把旅行状态注入 LLM 提示词",
+    "type": "bool",
+    "default": true,
+    "hint": "以临时 user 内容块注入，不改 system prompt、不写历史；关闭后模型不知道她在哪。"
+  },
+  "recent_report_count": {
+    "description": "【聊天注入】保留最近几条汇报",
+    "type": "int",
+    "default": 5,
+    "hint": "1-20 条，太多会占 token；**0 = 关闭汇报注入**（原「把最近主动汇报注入主聊天提示词」开关已合并到这里；旧配置里那个开关选过关的仍以旧开关为准）。汇报只注入给收到它的那个会话。"
   },
   "admin_only_controls": {
-    "description": "出发/拍照/同步仅管理员",
+    "description": "【权限】出发/点头/拍照/同步仅管理员",
     "type": "bool",
     "default": true
   },
   "allow_reset": {
-    "description": "允许重置旅行数据",
+    "description": "【权限】允许重置旅行数据",
     "type": "bool",
     "default": true,
     "hint": "重置会清空行程、事件、照片、日记和跨设备旅行记忆；配置和参考图保留。始终只有管理员能执行。"
   },
+  "allow_upstream_update": {
+    "description": "【上游更新】允许从 npm 更新上游源码",
+    "type": "bool",
+    "default": false,
+    "hint": "打开后 /journey_update 会从 npm 下载 tarball 覆盖插件目录下的 raw/（sha512 校验，失败自动回滚，只有管理员能执行），等于允许运行时替换代码；确认信任上游来源再开。"
+  },
+  "upstream_package": {
+    "description": "【上游更新】npm 包名",
+    "type": "string",
+    "default": "coopani-world-journey"
+  },
+  "upstream_registry": {
+    "description": "【上游更新】npm registry",
+    "type": "string",
+    "default": "https://registry.npmjs.org"
+  },
+  "update_show_changelog": {
+    "description": "【上游更新】成功时附上更新日志",
+    "type": "bool",
+    "default": false,
+    "hint": "打开后 /journey_update 成功时从新版 raw/CHANGELOG.md 截取「旧版 → 新版」的段落一起发出；关闭只报版本和结果。旧版没收录时只截新版一节，超长会截断。"
+  },
   "offline": {
-    "description": "离线模式",
+    "description": "【高级】离线模式",
     "type": "bool",
     "default": false,
     "hint": "不查天气/酒店/生图；旅行和作息照常。"
   },
-  "request_timeout": {
-    "description": "sidecar 请求超时（秒）",
-    "type": "int",
-    "default": 10
+  "node_path": {
+    "description": "【高级】Node 可执行文件路径",
+    "type": "string",
+    "default": "",
+    "hint": "留空自动从 PATH 找 node。需要 Node 22.7+；可填 C:\\Program Files\\nodejs\\node.exe 或所在目录。"
   },
   "sidecar_port": {
-    "description": "sidecar 端口",
+    "description": "【高级】sidecar 端口",
     "type": "int",
     "default": 0,
     "hint": "0 = 自动选空闲端口；调试时可固定。"
   },
-  "extra_config": {
-    "description": "额外引擎配置（JSON，谨慎使用）",
-    "type": "text",
-    "default": "",
-    "hint": "只用于给上游新增字段兜底，会原样写进 engine-config.json 并覆盖上面的映射；密钥请用上面的专门字段，不要放这里；字段写错可能让引擎行为异常。示例：{\"someNewField\": 123}"
+  "request_timeout": {
+    "description": "【高级】sidecar 普通请求超时（秒）",
+    "type": "int",
+    "default": 10,
+    "hint": "查询/出发/日记这类秒回的命令用它；出图不等这里——「生图·出图最多等几秒」自动决定拍照的等待上限（至少 150 秒）。"
   },
   "log_level": {
-    "description": "日志级别",
+    "description": "【高级】日志级别",
     "type": "string",
     "default": "info",
     "options": [
       "info",
       "debug"
     ]
+  },
+  "extra_config": {
+    "description": "【高级】额外引擎配置（JSON，谨慎使用）",
+    "type": "text",
+    "default": "",
+    "hint": "只用于给上游新增字段兜底，会原样写进 engine-config.json 并覆盖上面的映射；密钥请用各组的专门字段，不要放这里；字段写错可能让引擎行为异常。示例：{\"someNewField\": 123}"
   }
 }

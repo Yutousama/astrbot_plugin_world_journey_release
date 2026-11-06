@@ -260,7 +260,7 @@ LLM 工具由引擎自动注册（上游 0.8.6 提供 15 个，以实际 `tools(
 日志读不到或没收录就在回复里说明，不影响更新本身）。「已经是最新」时不输出日志。
 
 `allow_upstream_update` **默认关闭**，要用时才在配置里打开（理由见「安全说明」）；
-`upstream_package`、`upstream_registry` 可换源；`upstream_source` 只是展示页面。
+`upstream_package`、`upstream_registry` 可换源。
 运行时更新只换上游源码，本插件/Python 代码仍随插件版本更新。
 Node 26+ 也一样：`engine/amaro` 只在启动 sidecar 时参与，替换 `raw/` 不碰它。
 
@@ -278,9 +278,10 @@ Node 26+ 也一样：`engine/amaro` 只在启动 sidecar 时参与，替换 `raw
 user 内容块，不修改 `system_prompt`、不写入会话历史，避免系统提示之后的历史无法命中 prompt cache。
 如果 AstrBot 版本不支持临时内容块，插件会跳过注入并写日志，不会退回拼接 system prompt。
 
-另外，插件会在内存里保留最近几条**主动汇报**（`inject_recent_reports`，默认 5 条），
+另外，插件会在内存里保留最近几条**主动汇报**（`recent_report_count`，默认 5 条，**0 = 关闭**；
+原独立开关 `inject_recent_reports` 已并进这个数——旧配置里选过「关」的仍以旧开关为准），
 只注入给实际收到汇报的那个会话，和旅行状态合并在同一个临时内容块里。这样用户接着
-「刚刚到哪了」聊时，主 agent 知道在说哪条汇报。`recent_report_count` 控制条数；重启插件后
+「刚刚到哪了」聊时，主 agent 知道在说哪条汇报。重启插件后
 缓冲清空，重置旅行也会清空。
 
 ## 主动消息
@@ -335,7 +336,7 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | `comfy_negative_node` | 空 | 负向节点 id；留空自动找 |
 | `image_timeout_sec` | 0 | 出图最多等几秒；0 = 默认（本地 180、云端 90）。`/journey_photo` 的等待上限自动跟随 |
 | `image_cast` | 空 | 照片里出不出人（留空无人；填一段外貌描述） |
-| `image_size` | 空 | 出图尺寸 `宽x高`（如 `1664x928`）；留空 1024x1024 |
+| `image_size` | 空 | 出图尺寸 `宽x高`（如 `1664x928`）；留空 1024x1024；自拍尺寸留空时跟随这里 |
 | `image_watermark` | `auto` | 「AI生成」水印：`auto` 云端裁/本地不裁、`off` 不裁、`crop` 都裁 |
 | `photo_dir` | 空 | 照片额外归档目录；留空用插件数据目录 |
 
@@ -364,29 +365,27 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 被看见的只有宠物名、城市、时段（24 小时过期），不能聊天。
 开了 `ask_before_depart` 时，接邀约也会走「点头卡片」：`/journey_yes` 才算应约。
 
-套壳自己的：
+套壳自己的（配置页按【分组】顺序显示：基本 / 旅行 / 日记 / 数据 / 生图 / 生图·ComfyUI /
+模板 / 自拍 / 主动消息 / 聊天注入 / 权限 / 上游更新 / 高级。下表同序）：
 
 | 项 | 默认 | 说明 |
 |---|---|---|
-| `node_path` | 空 | Node 22.7+ 路径 |
 | `diary_write_time` | `23:00` | 她当地时间自动写日记；`HH:MM`，留空关闭 |
 | `diary_notify` | 开 | 自动日记写完后推送给主要通知人 |
 | `diary_notify_target` | 空 | 日记主要通知人（会话）；留空沿用 `event_target`，再空用最近会话 |
 | `inject_prompt` | 开 | 注入旅行状态 |
-| `inject_recent_reports` | 开 | 把最近汇报注入汇报会话 |
-| `recent_report_count` | 5 | 保留几条汇报 |
+| `recent_report_count` | 5 | 保留并注入几条汇报；**0 = 关**（原 `inject_recent_reports` 开关已并入；旧配置选过「关」的仍以旧开关为准） |
 | `proactive_enabled` | 关 | 主动发事件 |
 | `event_target` | 空 | 主动消息目标会话；`target` 模式下也是唯一允许使用的会话 |
 | `access_scope` | `all` | `all` 所有会话；`target` 仅 `event_target` |
-| `debounce_seconds` | 60 | 路上事件合并窗口 |
+| `debounce_seconds` | 60 | 路上事件合并窗口（壳层发送频率；和 `beat_gap` 是两回事） |
 | `report_image_mode` | `off` | `off` / `always` / `probability` |
 | `report_image_probability` | 0.3 | 汇报配图概率 |
-| `admin_only_controls` | 开 | 出发/拍照/同步/更新仅管理员 |
+| `admin_only_controls` | 开 | 出发/点头/拍照/同步/更新仅管理员 |
 | `allow_reset` | 开 | 允许 `/journey_reset`（始终仅管理员） |
 | `allow_upstream_update` | 关 | 允许 `/journey_update`（默认关闭，见下方说明） |
 | `upstream_package` | `coopani-world-journey` | 上游 npm 包名 |
 | `upstream_registry` | `https://registry.npmjs.org` | npm registry |
-| `upstream_source` | npm 页面 | 展示用源地址 |
 | `update_show_changelog` | 关 | `/journey_update` 成功时是否附上上游更新日志 |
 | `selfie_enabled` | 关 | 所有照片必须是自拍 |
 | `selfie_reference` | 空 | 自拍参考图（WebUI 上传） |
@@ -396,12 +395,16 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | `image_prompt_scene_template` | 内置模板 | 空镜模板（没开自拍时用），守住「画面里没有人物」 |
 | `image_prompt_for_scene` | 开 | 关掉后空镜只用上游原话，不套模板 |
 | `selfie_prompt` | 空 | 旧字段：`image_prompt_template` 留空时才生效 |
+| `selfie_api/key/model` | 空 | 留空沿用生图配置（`image_model` 列表按顺序降级）；生图协议是 ComfyUI 时要自拍就得单独指云端 |
 | `selfie_mode` | `edit` | `edit` / `generation` / `native` |
 | `selfie_native_url` | 空 | native 完整端点，留空自动拼 |
-| `selfie_api/key/model` | 空 | 留空沿用生图配置（`image_model` 列表按顺序降级） |
 | `selfie_image_field` | `image_url` | generation 模式图片字段 |
-| `selfie_size` | `1024x1024` | 自拍尺寸 |
+| `selfie_size` | 空 | 自拍尺寸；**留空跟随 `image_size`**，再空＝不发尺寸（云端默认方形）；旧配置里存的 `1024x1024` 照旧生效 |
 | `offline` | 关 | 不查天气/酒店/生图 |
+| `node_path` | 空 | Node 22.7+ 路径 |
+| `sidecar_port` | 0 | 0 = 自动选空闲端口 |
+| `request_timeout` | 10 | 普通命令的 sidecar 超时（秒）；出图等待跟 `image_timeout_sec` 走，不等这里 |
+| `log_level` | `info` | `info` / `debug` |
 | `extra_config` | 空 | 上游新增字段的 JSON 兜底 |
 
 `extra_config` 示例：`{"someNewField": 123}`，会覆盖同名引擎字段。
