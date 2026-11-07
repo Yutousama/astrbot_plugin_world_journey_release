@@ -42,6 +42,9 @@ FIELD_MAP: dict[str, str] = {
     "image_cast": "imageCast",
     "image_size": "imageSize",
     "image_watermark": "imageWatermark",
+    # 请求形状兼容开关：有些上游不认 response_format / size，带上就 400。
+    "image_no_response_format": "imageNoResponseFormat",
+    "image_no_size": "imageNoSize",
     "photo_dir": "photoDir",
     # 生图提示词模板：新字段（出镜自拍 / 空镜各一套）+ 是否让模板也接管空镜。
     # 「新字段留空时回退旧 selfie_prompt」只在 adapter/bridge.ts 一处实现，这里不重复。
@@ -58,6 +61,7 @@ FIELD_MAP: dict[str, str] = {
     "selfie_key": "selfieKey",
     "selfie_model": "selfieModel",
     "selfie_mode": "selfieMode",
+    "selfie_edit_json": "selfieEditJson",
     "selfie_native_url": "selfieNativeUrl",
     "selfie_image_field": "selfieImageField",
     "selfie_size": "selfieSize",
@@ -66,6 +70,12 @@ FIELD_MAP: dict[str, str] = {
 # 新版 schema 的默认周数（≈ 旧「6 个月」）。迁移只在用户没动过新键时生效。
 MAX_TRIP_WEEKS_DEFAULT = 26
 _MONTHS_TO_WEEKS = 4.345
+
+# 参考图超过这个大小就压一份再交给 sidecar。
+# 3 MB 的 PNG base64 后约 3.85 MB，上游会直接 502，或者干脆把图丢掉只按文字画。
+MAX_REFERENCE_BYTES = 600_000
+MAX_REFERENCE_SIDE = 1024
+REFERENCE_JPEG_QUALITY = 82
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 
@@ -116,7 +126,9 @@ def build_engine_config(
         manual = engine.pop("selfieReferencePath", "")
         if isinstance(manual, str) and manual.strip():
             items.append(manual.strip())
-        engine["selfieReference"] = _resolve_references(items, base_dir or PLUGIN_DIR)
+        # 默认压；只有用户显式关掉才不压（旧配置里没有这个键 → 当作压）。
+        shrink = config.get("selfie_reference_shrink", True) is not False
+        engine["selfieReference"] = _resolve_references(items, base_dir or PLUGIN_DIR, log, shrink)
 
     # 上游的拍照门槛看 imageApi；只配了 selfieApi 时也让它过闸。
     if not str(engine.get("imageApi") or "").strip() and str(engine.get("selfieApi") or "").strip():
@@ -183,18 +195,59 @@ def _migrate_max_trip(config: dict[str, Any], engine: dict[str, Any], log: Any =
         )
 
 
-def _resolve_references(value: Any, base_dir: Path) -> list[str]:
+def _resolve_references(value: Any, base_dir: Path, log: Any = None, shrink: bool = True) -> list[str]:
     items = value if isinstance(value, list) else [value] if isinstance(value, str) else []
     out: list[str] = []
     for item in items:
         if not isinstance(item, str) or not item.strip():
             continue
         text = item.strip()
-        if text.startswith(("http://", "https://", "data:")) or Path(text).is_absolute():
+        if text.startswith(("http://", "https://", "data:")):
             out.append(text)
+        elif Path(text).is_absolute():
+            out.append(_shrink_reference(Path(text), base_dir, log, shrink))
         else:
-            out.append(str((base_dir / text).resolve()))
+            out.append(_shrink_reference((base_dir / text).resolve(), base_dir, log, shrink))
     return out
+
+
+def _shrink_reference(path: Path, base_dir: Path, log: Any = None, shrink: bool = True) -> str:
+    """过大的参考图压一份再交给 sidecar（可用 `selfie_reference_shrink` 关掉）。
+
+    请求体太大时上游的表现是 502，或者「收下了但不用」——画面里的人物和参考图毫无关系。
+    压到 600 KB 以内、最长边 1024，实际出图效果没差别，请求体却能小一个数量级。
+    压缩失败（没装 Pillow、文件坏了）就原样返回，不让配置写不出来。
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return str(path)
+    if not shrink or size <= MAX_REFERENCE_BYTES:
+        return str(path)
+    try:
+        from PIL import Image  # type: ignore
+    except Exception:
+        return str(path)
+    cache = base_dir / "files" / "selfie_reference" / "_cache"
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        stamp = int(path.stat().st_mtime)
+        target = cache / f"{path.stem}-{size}-{stamp}.jpg"
+        if not target.exists() or target.stat().st_size == 0:
+            with Image.open(path) as im:
+                im = im.convert("RGB")
+                im.thumbnail((MAX_REFERENCE_SIDE, MAX_REFERENCE_SIDE), Image.LANCZOS)
+                im.save(target, "JPEG", quality=REFERENCE_JPEG_QUALITY, optimize=True)
+        if callable(getattr(log, "info", None)):
+            log.info(
+                "[world-journey] 参考图偏大（%.1f MB），已压到 %.0f KB 再发给生图接口；原图没动：%s",
+                size / 1e6, target.stat().st_size / 1024, target,
+            )
+        return str(target)
+    except Exception as exc:
+        if callable(getattr(log, "warning", None)):
+            log.warning("[world-journey] 参考图压缩失败，仍用原图（可能被上游丢弃）：%s", exc)
+        return str(path)
 
 
 def _model_list(value: Any) -> list[str]:

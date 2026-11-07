@@ -148,6 +148,18 @@
     "default": "",
     "hint": "宽x高，如 1664x928（横 16:9）、1152x1536（竖 3:4）。留空＝1024x1024 方形。ComfyUI 会自动吸附到 8 的倍数；云端填了不支持的值会被拒。自拍留空时也跟随这里。"
   },
+  "image_no_response_format": {
+    "description": "【生图】不发 response_format",
+    "type": "bool",
+    "default": false,
+    "hint": "兼容开关：打开后所有出图请求都不带 response_format，改用服务商默认返回格式。有的中转站/上游不认这个字段会报 400，勾上即可。默认取 b64_json（图不落地、不依赖外链可下载）。"
+  },
+  "image_no_size": {
+    "description": "【生图】不发 size",
+    "type": "bool",
+    "default": false,
+    "hint": "兼容开关：打开后所有出图请求都不带 size，用服务商默认尺寸。有的上游会回「Argument not supported: size」，勾上即可；此时「出图尺寸」「自拍尺寸」都不生效。"
+  },
   "image_watermark": {
     "description": "【生图】「AI生成」水印处理",
     "type": "string",
@@ -235,13 +247,19 @@
       "jpeg",
       "webp"
     ],
-    "hint": "上传角色参考图（正脸清晰、无遮挡最好）。生图时作为 image-to-image 的参考，保持同一张脸。"
+    "hint": "上传角色参考图（正脸清晰、无遮挡最好）。生图时作为 image-to-image 的参考，保持同一张脸。超过 600KB 会自动压一份（最长边 1024）再发给接口，原图不动——图太大时上游会 502，或者收下图却不用，人物就和参考图对不上。"
   },
   "selfie_reference_path": {
     "description": "【自拍】参考图路径（可选）",
     "type": "string",
     "default": "",
     "hint": "不上传文件时，可直接填绝对路径或 http(s) URL；会追加到上传文件之后。"
+  },
+  "selfie_reference_shrink": {
+    "description": "【自拍】参考图自动压缩",
+    "type": "bool",
+    "default": true,
+    "hint": "打开后超过 600KB 的参考图会压一份（最长边 1024、JPEG）再发给生图接口，原图不动。关掉就原样发送——图太大时有的上游会报 502，或者收下图却不用，人物和参考图对不上。"
   },
   "selfie_subject": {
     "description": "【自拍】主体称呼",
@@ -278,6 +296,12 @@
       "native"
     ],
     "hint": "edit = /images/edits multipart；generation = OpenAI /images/generations 带 image_url；native = 阿里百炼万相原生 multimodal-generation（data URL）。"
+  },
+  "selfie_edit_json": {
+    "description": "【自拍】编辑接口直接发 JSON",
+    "type": "bool",
+    "default": false,
+    "hint": "edit 模式默认发 multipart（OpenAI 原生 /images/edits 只认这个）。有的中转站/上游只认 application/json，multipart 会回 415/502；打开后改发 JSON，参考图放在 selfie_image_field 指的那个字段里。关着时失败也会按错误提示自动兜底一次 JSON。"
   },
   "selfie_native_url": {
     "description": "【自拍】万相原生接口地址（native 模式）",

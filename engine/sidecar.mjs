@@ -598,7 +598,9 @@ function installPhotoProxy(opts, log, fetchImpl = globalThis.fetch) {
   const models = modelListOf(opts.models);
   const selfie = opts.selfie?.enabled === true ? opts.selfie : null;
   const scene = opts.scene && opts.scene.enabled === true && opts.scene.promptTemplate.trim() ? opts.scene : null;
-  if (!selfie && !scene && models.length < 2) return { uninstall: () => {
+  const compat = opts.compat ?? {};
+  const compatActive = compat.noResponseFormat === true || compat.noSize === true;
+  if (!selfie && !scene && models.length < 2 && !compatActive) return { uninstall: () => {
   }, fetch: fetchImpl };
   if (selfie && selfie.references.length === 0) {
     log.warn("\u81EA\u62CD\u5DF2\u5F00\u542F\uFF0C\u4F46\u6CA1\u6709\u53C2\u8003\u56FE\uFF1B\u7167\u7247\u4F1A\u5931\u8D25\u800C\u4E0D\u662F\u9000\u56DE\u7A7A\u955C\u3002\u8BF7\u5728\u63D2\u4EF6\u914D\u7F6E\u91CC\u4E0A\u4F20 selfie_reference\u3002");
@@ -644,11 +646,13 @@ function installPhotoProxy(opts, log, fetchImpl = globalThis.fetch) {
           const result = await generateSelfieWithModel(selfie, model, body, prompt, original, log, reference, clock);
           return jsonResponse({ data: [result] });
         }
+        const outgoing = scene ? { ...body, prompt: scenePrompt } : { ...body };
+        applyCompat(outgoing, compat);
         const res = await replayWithModel(
           original,
           url,
           init ?? {},
-          scene ? { ...body, prompt: scenePrompt } : body,
+          outgoing,
           model
         );
         if (res.ok) return res;
@@ -726,36 +730,51 @@ async function generateSelfieWithModel(opts, model, upstreamBody, originalPrompt
       model,
       prompt,
       n: 1,
-      size,
-      response_format: "b64_json",
       [opts.imageField.trim() || "image_url"]: opts.imageField.trim() === "image" ? Buffer.from(reference.bytes).toString("base64") : dataUrl
     };
+    applyCompat(payload, opts);
     const res2 = await postJson(`${api}/images/generations`, headers, payload, fetchImpl);
+    if (!res2.ok) {
+      const detail = (await res2.text()).slice(0, 500);
+      throw new Error(`\u81EA\u62CD\u63A5\u53E3 HTTP ${res2.status}${detail ? `\uFF1A${detail}` : ""}`);
+    }
     log.info(`\u81EA\u62CD\u63A5\u53E3\u54CD\u5E94\uFF1AHTTP ${res2.status}\uFF08generation\uFF09\uFF0Ccontent-length=${res2.headers.get("content-length") ?? "?"}`);
     const image2 = parseImagePayload(await readJson(res2, log));
     logSelfieImage(image2, log);
     return image2;
   }
-  const form = new FormData();
-  form.set("model", model);
-  form.set("prompt", prompt);
-  form.set("n", "1");
-  form.set("size", size);
-  form.set("response_format", "b64_json");
-  form.set("image", new Blob([reference.bytes], { type: reference.mime }), reference.name);
-  let res = await fetchImpl(`${api}/images/edits`, { method: "POST", headers, body: form });
-  if (res.status === 400 || res.status === 415) {
-    const peek = (await res.clone().text()).slice(0, 500);
-    if (/multipart|content-type|image|图片/i.test(peek)) {
-      const dataUrl = `data:${reference.mime};base64,${Buffer.from(reference.bytes).toString("base64")}`;
-      res = await postJson(`${api}/images/edits`, headers, {
-        model,
-        prompt,
-        n: 1,
-        size,
-        response_format: "b64_json",
-        image: dataUrl
-      }, fetchImpl);
+  const editField = opts.imageField.trim() || "image_url";
+  const editImage = editField === "image" ? Buffer.from(reference.bytes).toString("base64") : `data:${reference.mime};base64,${Buffer.from(reference.bytes).toString("base64")}`;
+  const editJsonBody = () => {
+    const jsonBody = {
+      model,
+      prompt,
+      n: 1,
+      [editField]: editImage
+    };
+    if (opts.noSize !== true) jsonBody.size = size;
+    if (opts.noResponseFormat !== true) jsonBody.response_format = "b64_json";
+    return jsonBody;
+  };
+  const postEditJson = () => postJson(`${api}/images/edits`, headers, editJsonBody(), fetchImpl);
+  let res;
+  if (opts.editJson === true) {
+    res = await postEditJson();
+  } else {
+    const form = new FormData();
+    form.set("model", model);
+    form.set("prompt", prompt);
+    form.set("n", "1");
+    if (opts.noSize !== true) form.set("size", size);
+    if (opts.noResponseFormat !== true) form.set("response_format", "b64_json");
+    form.set("image", new Blob([reference.bytes], { type: reference.mime }), reference.name);
+    res = await fetchImpl(`${api}/images/edits`, { method: "POST", headers, body: form });
+    const retryable = res.status === 415 || res.status >= 500 || res.status === 400 || res.status === 422;
+    if (retryable) {
+      const peek = await res.clone().text().catch(() => "");
+      if (res.status >= 500 || res.status === 415 || /multipart|content-type|application\/json|image|图片/i.test(peek)) {
+        res = await postEditJson();
+      }
     }
   }
   if (!res.ok) {
@@ -771,6 +790,10 @@ async function loadSelfieReference(opts, fetchImpl) {
   const references = opts.references.filter(Boolean);
   if (!references.length) throw new Error("\u6CA1\u6709\u53C2\u8003\u56FE\uFF1A\u8BF7\u5728\u63D2\u4EF6\u914D\u7F6E\u91CC\u4E0A\u4F20 selfie_reference");
   return loadReference(references[0], fetchImpl);
+}
+function applyCompat(payload, opts) {
+  if (opts.noResponseFormat === true) delete payload.response_format;
+  if (opts.noSize === true) delete payload.size;
 }
 function replayWithModel(original, url, init, body, model) {
   const headers = new Headers(init.headers ?? {});
@@ -819,6 +842,12 @@ function modelListOf(value) {
 async function generateNative(opts, api, model, size, prompt, reference, headers, fetchImpl, log) {
   const nativeUrl = (opts.nativeUrl ?? "").trim() || `${new URL(api).origin}/api/v1/services/aigc/multimodal-generation/generation`;
   const dataUrl = `data:${reference.mime};base64,${Buffer.from(reference.bytes).toString("base64")}`;
+  const parameters = {
+    n: 1,
+    watermark: false,
+    thinking_mode: false
+  };
+  if (opts.noSize !== true) parameters.size = nativeSize(size);
   const payload = {
     model,
     input: {
@@ -827,12 +856,7 @@ async function generateNative(opts, api, model, size, prompt, reference, headers
         content: [{ image: dataUrl }, { text: prompt }]
       }]
     },
-    parameters: {
-      size: nativeSize(size),
-      n: 1,
-      watermark: false,
-      thinking_mode: false
-    }
+    parameters
   };
   const res = await postJson(nativeUrl, headers, payload, fetchImpl);
   log.info(`\u81EA\u62CD\u63A5\u53E3\u54CD\u5E94\uFF1AHTTP ${res.status}\uFF08native\uFF09\uFF0Ccontent-length=${res.headers.get("content-length") ?? "?"}`);
@@ -1064,7 +1088,7 @@ function text(value) {
 }
 
 // adapter/bridge.ts
-var BRIDGE_VERSION = true ? "1.0.7" : "dev";
+var BRIDGE_VERSION = true ? "1.0.8" : "dev";
 function readLocalNowPlaying(dataDir) {
   try {
     const path = join9(dataDir, "nowplaying.json");
@@ -1334,13 +1358,18 @@ var RawBridge = class {
       // 自拍模型没单独填时，用「生图模型名」的整个列表按顺序降级。
       model: selfieModel ? [selfieModel] : this.imageModels(),
       mode: modeRaw === "generation" || modeRaw === "native" ? modeRaw : "edit",
+      // 编辑接口直接发 JSON：给只认 application/json 的中转站/上游。
+      editJson: cfg.selfieEditJson === true,
       nativeUrl: stringOf2(cfg.selfieNativeUrl),
       size: stringOf2(cfg.selfieSize),
       imageField: stringOf2(cfg.selfieImageField) || "image_url",
       subject: stringOf2(cfg.selfieSubject) || "\u5979\u672C\u4EBA",
       promptTemplate: this.selfieTemplate(cfg),
       // 画风从这条路径起也生效：模板里的 {style} 就是它。
-      style: this.imageStyle()
+      style: this.imageStyle(),
+      // 兼容开关：有些上游不认 response_format / size，带上就 400。
+      noResponseFormat: cfg.imageNoResponseFormat === true,
+      noSize: cfg.imageNoSize === true
     };
   }
   /**
@@ -1399,8 +1428,14 @@ var RawBridge = class {
       this.log.info("\u751F\u56FE\u534F\u8BAE\u662F ComfyUI\uFF1A\u81EA\u62CD\u5957\u58F3\u4E0E\u4E3B\u52A8\u6C47\u62A5\u914D\u56FE\u4E0D\u751F\u6548\uFF08\u8981\u7528\u7684\u8BDD\u5355\u72EC\u914D selfie_api \u6307\u5411\u4E91\u7AEF\u751F\u56FE\u670D\u52A1\uFF09\u3002");
     }
     const scene = selfie ? null : this.sceneOptions();
-    if (!selfie && !scene && models.length === 0) return;
-    const proxy = installPhotoProxy({ models, selfie, scene, clock: () => this.localClock() }, this.log);
+    const cfg = this.cfg;
+    const compat = {
+      noResponseFormat: cfg?.imageNoResponseFormat === true,
+      noSize: cfg?.imageNoSize === true
+    };
+    const compatActive = compat.noResponseFormat || compat.noSize;
+    if (!selfie && !scene && models.length === 0 && !compatActive) return;
+    const proxy = installPhotoProxy({ models, selfie, scene, compat, clock: () => this.localClock() }, this.log);
     this.uninstallSelfie = proxy.uninstall;
     this.proxyFetch = proxy.fetch;
     if (selfie) {
@@ -1411,7 +1446,6 @@ var RawBridge = class {
     if (models.length > 1) {
       this.log.info(`\u751F\u56FE\u6A21\u578B\u964D\u7EA7\u5DF2\u542F\u7528\uFF1A${models.join(" \u2192 ")}`);
     }
-    const cfg = this.cfg;
     const templateSource = cfg && stringOf2(cfg.imagePromptTemplate).trim() ? "image_prompt_template" : cfg && stringOf2(cfg.selfiePrompt).trim() ? "selfie_prompt\uFF08\u65E7\u5B57\u6BB5\uFF09" : "\u5185\u7F6E\u9ED8\u8BA4";
     this.log.info(
       `\u751F\u56FE\u63D0\u793A\u8BCD\uFF1A\u753B\u98CE\u300C${this.imageStyle() || "\uFF08\u7559\u7A7A=\u771F\u5B9E\u65C5\u884C\u7167\u7247\uFF09"}\u300D\uFF5C\u6A21\u677F ${templateSource}\uFF5C\u7A7A\u955C\u5957\u6A21\u677F ${scene ? "\u5F00" : "\u5173"}`

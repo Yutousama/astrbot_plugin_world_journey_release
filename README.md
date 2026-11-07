@@ -147,9 +147,33 @@ astrbot_plugin_world_journey/
   `/api/v1/services/aigc/multimodal-generation/generation`，`input.messages` 里传
   `data:image/...` 参考图；适合 `wan2.7-image`。`selfie_native_url` 可覆盖完整端点。
 
+`edit` 模式默认发 multipart（OpenAI 原生 `/images/edits` 只认这个）。有的中转站/上游只认
+`application/json`，会回 `415` / `502`；这时打开 `selfie_edit_json`，请求改发 JSON，参考图放在
+`selfie_image_field` 指的那个字段里（data URL）。关着时也会在 multipart 失败、错误里点名
+multipart / Content-Type 的情况下自动兜底一次 JSON。
+
+**参考图别太大。** 传送前会自动检查：超过 600 KB 的参考图会压一份（最长边 1024、JPEG）再交给
+接口，原图不动；不想要压缩就关掉 `selfie_reference_shrink`。原因很实际——3 MB 的 PNG base64 后
+请求体接近 4 MB，有的上游直接 `502`，有的收下了却不用，表现就是「人物和参考图完全不像」。
+
 `selfie_api` / `selfie_key` / `selfie_model` 留空则沿用 `image_api` / `image_key` /
 `image_model`。`image_model` 是**列表**：按顺序尝试，前一个报错就换下一个，全都失败才放弃；
 `selfie_model` 留空时自拍也走这条降级链。
+
+### 接口兼容开关
+
+有的中转站/上游不认某些请求字段，会直接回 400（常见报错 `Argument not supported: size`、
+`bad_response_body`）。遇到时**按报错只关对应那一个**，不要一次全关：
+
+| 配置 | 关掉后 | 典型症状 |
+| --- | --- | --- |
+| `image_no_response_format` | 请求不带 `response_format`，用服务商默认返回格式 | 报错点名 `response_format` |
+| `image_no_size` | 请求不带 `size`，用服务商默认尺寸 | 报错点名 `size`；此时尺寸配置不生效 |
+
+两个开关对**所有云端出图**生效（相册、`/journey_photo`、主动汇报配图），包括自拍的
+`edit` / `generation` 两条路径；ComfyUI 协议不走这两个字段。默认都关（保持老行为：
+`response_format=b64_json`、带 `size`）。另有一层「请求形状」的开关 `selfie_edit_json`
+（multipart 还是 JSON），和这两个字段开关正交，见「自拍」小节。
 
 ### 提示词模板
 
@@ -360,6 +384,8 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | `image_timeout_sec` | 0 | 出图最多等几秒；0 = 默认（本地 180、云端 90）。`/journey_photo` 的等待上限自动跟随 |
 | `image_cast` | 空 | 照片里出不出人（留空无人；填一段外貌描述） |
 | `image_size` | 空 | 出图尺寸 `宽x高`（如 `1664x928`）；留空 1024x1024；自拍尺寸留空时跟随这里 |
+| `image_no_response_format` | 关 | 兼容开关：所有出图请求都不带 `response_format`（有些接口不认这个字段会 400） |
+| `image_no_size` | 关 | 兼容开关：所有出图请求都不带 `size`（报 `Argument not supported: size` 的接口勾上；此时尺寸配置不生效） |
 | `image_watermark` | `auto` | 「AI生成」水印：`auto` 云端裁/本地不裁、`off` 不裁、`crop` 都裁 |
 | `photo_dir` | 空 | 照片额外归档目录；留空用插件数据目录 |
 
@@ -411,7 +437,8 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | `upstream_registry` | `https://registry.npmjs.org` | npm registry |
 | `update_show_changelog` | 关 | `/journey_update` 成功时是否附上上游更新日志 |
 | `selfie_enabled` | 关 | 所有照片必须是自拍 |
-| `selfie_reference` | 空 | 自拍参考图（WebUI 上传） |
+| `selfie_reference` | 空 | 自拍参考图（WebUI 上传）；超过 600KB 会自动压一份再发，原图不动 |
+| `selfie_reference_shrink` | 开 | 参考图自动压缩开关；关掉就原样发送（图太大时上游可能 502 或丢弃参考图） |
 | `selfie_reference_path` | 空 | 参考图绝对路径/URL（可选） |
 | `selfie_subject` | `她本人` | 提示词主体 |
 | `image_prompt_template` | 内置模板 | 出镜生图模板（含汇报配图），可用 `{scene}`/`{subject}`/`{style}`/`{time}`/`{clock}` |
@@ -420,6 +447,7 @@ user 内容块，不修改 `system_prompt`、不写入会话历史，避免系�
 | `selfie_prompt` | 空 | 旧字段：`image_prompt_template` 留空时才生效 |
 | `selfie_api/key/model` | 空 | 留空沿用生图配置（`image_model` 列表按顺序降级）；生图协议是 ComfyUI 时要自拍就得单独指云端 |
 | `selfie_mode` | `edit` | `edit` / `generation` / `native` |
+| `selfie_edit_json` | 关 | `edit` 模式改发 JSON（参考图放 `selfie_image_field` 的 data URL）；给只认 `application/json` 的中转站 |
 | `selfie_native_url` | 空 | native 完整端点，留空自动拼 |
 | `selfie_image_field` | `image_url` | generation 模式图片字段 |
 | `selfie_size` | 空 | 自拍尺寸；**留空跟随 `image_size`**，再空＝不发尺寸（云端默认方形）；旧配置里存的 `1024x1024` 照旧生效 |
