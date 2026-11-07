@@ -15,11 +15,13 @@ import re
 import shutil
 import subprocess
 import time
+import urllib.parse
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import aiohttp
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools
@@ -1618,11 +1620,13 @@ class WorldJourneyPlugin(Star):
     def _raw_version(self) -> str:
         return read_pkg_version(RAW_DIR / "package.json")
 
-    def _npm_latest_version(self) -> str:
+    async def _npm_latest_version(self) -> str:
         """「npm 上最新上游版本」：读 plugin_data 缓存，过期才联网（5 秒超时）。
 
         查询失败不报错——沿用旧缓存值；这条路径只在「功能缺失」时走，
         给用户一句「npm 已有 x.y.z」的可操作提示，仅此而已。
+        用 aiohttp 异步请求（同 bridge.py）——审核指出的阻塞点：这里曾被
+        同步 urllib 调用卡住 AstrBot 事件循环最长 5 秒，绝不允许。
         """
         cache = self.data_dir / "upstream-latest.json"
         version = ""
@@ -1637,14 +1641,11 @@ class WorldJourneyPlugin(Star):
             return version
         package = str(self.cfg.get("upstream_package") or "coopani-world-journey")
         registry = str(self.cfg.get("upstream_registry") or "https://registry.npmjs.org").rstrip("/")
+        url = f"{registry}/{urllib.parse.quote(package, safe='')}"
         try:
-            import urllib.parse
-            import urllib.request
-
-            url = f"{registry}/{urllib.parse.quote(package, safe='')}"
-            request = urllib.request.Request(url, headers={"Accept": "application/json"})
-            with urllib.request.urlopen(request, timeout=5) as response:
-                meta = json.loads(response.read().decode("utf-8", "replace"))
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+                async with session.get(url, headers={"Accept": "application/json"}) as response:
+                    meta = await response.json(content_type=None)
             latest = str((meta.get("dist-tags") or {}).get("latest") or "")
         except Exception as exc:
             logger.debug("[world-journey] 查询 npm 最新版本失败：%s", exc)
@@ -1685,7 +1686,7 @@ class WorldJourneyPlugin(Star):
         else:
             head = f"「{name}」用不了：需要上游源码 ≥{min_ver}，当前是 {current or '读不到（raw/ 不见了）'}。"
         parts = [head]
-        latest = self._npm_latest_version()
+        latest = await self._npm_latest_version()
         if latest and version_key(latest) >= version_key(min_ver):
             parts.append(f"npm 上已有 {latest}。")
         if bool(self.cfg.get("allow_upstream_update")):
