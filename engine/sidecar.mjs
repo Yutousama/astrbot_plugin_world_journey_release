@@ -1064,7 +1064,7 @@ function text(value) {
 }
 
 // adapter/bridge.ts
-var BRIDGE_VERSION = true ? "1.0.6" : "dev";
+var BRIDGE_VERSION = true ? "1.0.7" : "dev";
 function readLocalNowPlaying(dataDir) {
   try {
     const path = join9(dataDir, "nowplaying.json");
